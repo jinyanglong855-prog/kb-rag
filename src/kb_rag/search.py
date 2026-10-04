@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .authority import apply as authority_apply
 from .config import INDEX_DIR, KB_PATH, validate_kb_path
 from .embedder import embed
 from .loader import chunk_markdown, load_markdown_files

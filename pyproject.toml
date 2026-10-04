@@ -2,7 +2,7 @@
 name = "kb-rag"
 version = "0.1.0"
 description = "本地知识库检索：从朴素 RAG 到 Agentic GraphRAG 的六阶段演进（作品集项目）"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastembed>=0.7",
     "numpy>=2.0",

@@ -11,6 +11,7 @@ KB_PATH = Path(os.environ.get("KB_PATH", ""))
 INDEX_DIR = Path(os.environ.get("INDEX_DIR", "index"))
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
+RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
 
 
 def validate_kb_path() -> Path:
