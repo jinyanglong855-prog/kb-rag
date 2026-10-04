@@ -10,6 +10,7 @@ from pathlib import Path
 import bm25s
 import jieba
 
+from .authority import apply as authority_apply
 from .config import INDEX_DIR
 from .search import query as vector_query
 
@@ -73,7 +74,9 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 20) -> list
         if idx is not None:
             rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (60 + rank)
 
-    top = sorted(rrf.items(), key=lambda x: -x[1])[:k]
+    # 权威性加权：知识库结构语义（现行>归档）作为可解释的分数乘数
+    weighted = {idx: authority_apply(chunks[idx]["path"], score) for idx, score in rrf.items()}
+    top = sorted(weighted.items(), key=lambda x: -x[1])[:k]
     out = []
     for idx, score in top:
         c = chunks[idx]

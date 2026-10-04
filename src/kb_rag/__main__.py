@@ -3,6 +3,7 @@
 import argparse
 
 from .hybrid import build_bm25_index, hybrid_query
+from .rerank import rerank
 from .search import build_index, query
 
 
@@ -15,6 +16,7 @@ def main() -> None:
     q.add_argument("question")
     q.add_argument("-k", type=int, default=5)
     q.add_argument("--mode", choices=["vector", "hybrid"], default="vector")
+    q.add_argument("--rerank", action="store_true", help="交叉编码器精排（首次运行需下载模型）")
     args = parser.parse_args()
 
     if args.cmd == "index":
@@ -25,7 +27,11 @@ def main() -> None:
             build_bm25_index()
     else:
         hits = hybrid_query(args.question, args.k) if args.mode == "hybrid" else query(args.question, args.k)
+        if args.rerank:
+            hits = rerank(args.question, hits)
         label = "hybrid(BM25+向量 RRF)" if args.mode == "hybrid" else "vector"
+        if args.rerank:
+            label += " + rerank"
         print(f"== 检索模式: {label} ==")
         for i, r in enumerate(hits, 1):
             print(f"\n[{i}] {r['score']}  {r['path']}  # {r['heading']}")
