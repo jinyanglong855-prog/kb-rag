@@ -7,7 +7,8 @@
 | 阶段 | 方案 | 要解决的问题 | 状态 |
 | --- | --- | --- | --- |
 | 0 | 朴素 RAG：BGE-zh 嵌入 + numpy 余弦 | 基线 | ✅ 当前 |
-| 1 | 混合检索（BM25+向量 RRF）+ 路径权威性加权 + 交叉编码器精排 | 关键词精确性、结构权威性、语义精排 | ✅ 当前 |
+| 1 | 混合检索（BM25+向量 RRF）+ 路径权威性加权 + 交叉编码器精排 + Chroma 持久库 | 关键词精确性、结构权威性、语义精排、规模边界 | ✅ 当前 |
+| 1.5 | 问答生成层：hybrid 检索 → DeepSeek 生成带 [n] 引用的回答 | RAG 闭环 | ✅ 当前 |
 | 2 | Wiki 化层：目录层级摘要树（PageIndex/RAPTOR 思路） | "项目状态"类问题命中结构页而非归档 | 待做 |
 | 3 | mini-GraphRAG：LLM 抽实体关系 → networkx → 多跳检索 → pyvis 可视化，对比 LightRAG | 跨项目多跳问题 | 待做 |
 | 4 | Agentic RAG：各层检索做成 tools，LLM 自主调度 | 检索策略自适应 | 待做 |
@@ -38,8 +39,15 @@
 ## 用法
 
 ```bash
-cp .env.example .env   # 填 KB_PATH（只读引用知识库，笔记不入库）
+cp .env.example .env   # 填 KB_PATH 与 DEEPSEEK_API_KEY（知识库只读引用，笔记不入库）
 uv sync
-uv run kb-rag index
-uv run kb-rag query "小红书宠物项目现在卡在哪一步" -k 5
+uv run kb-rag index                 # 向量+BM25+Chroma 三索引
+uv run kb-rag query "问题" --mode hybrid --rerank   # 检索（可换 --mode vector/chroma 对照）
+uv run kb-rag ask "问题"            # 检索+生成：带 [n] 引用的回答
 ```
+
+## 设计决策索引
+
+- **722 篇/4793 块不引入向量库也能用**（numpy 暴力余弦毫秒级）；Chroma 是为"语料增长、元数据过滤、增量更新"的边界准备的，`--store`/`--mode` 保留 numpy 路径做对照，两者结果一致（实证见 commit 历史）。
+- **权威性加权是显式规则**（现行状态×1.6、决策×1.3、日志×0.6、归档×0.35），每条乘数可回答"为什么"，不做黑盒重排。
+- **ask 层强制引用**：关键论断必须标 [n] 且来源可追；资料不足时要求模型明说，不许猜——这来自真实企业交付里"答案看着对、源头找不到"的教训。
