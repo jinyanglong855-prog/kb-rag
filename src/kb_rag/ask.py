@@ -8,7 +8,7 @@ import os
 
 from openai import OpenAI
 
-from .config import HYBRID_DEFAULT
+from .config import HYBRID_DEFAULT, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .hybrid import hybrid_query
 
 PROMPT = """你是本地知识库的问答助手。只依据提供的资料回答，不编造。
@@ -25,9 +25,8 @@ PROMPT = """你是本地知识库的问答助手。只依据提供的资料回�
 
 
 def ask(question: str, k: int = 5) -> str:
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    if not api_key:
-        raise SystemExit("请在 .env 里填 DEEPSEEK_API_KEY（https://platform.deepseek.com 申请）")
+    if not LLM_API_KEY:
+        raise SystemExit("请在 .env 里填 LLM_API_KEY（智谱/DeepSeek 均可，接口兼容 OpenAI SDK）")
 
     hits = hybrid_query(question, k=k)
     if not hits:
@@ -36,9 +35,9 @@ def ask(question: str, k: int = 5) -> str:
         f"[{i}] 来源：{h['path']} #{h['heading']}\n{h['text'][:800]}"
         for i, h in enumerate(hits, 1)
     )
-    client = OpenAI(api_key=api_key, base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
+    client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
     resp = client.chat.completions.create(
-        model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        model=LLM_MODEL,
         messages=[{"role": "user", "content": PROMPT.format(context=context, question=question)}],
         temperature=0.2,
     )

@@ -12,6 +12,9 @@ INDEX_DIR = Path(os.environ.get("INDEX_DIR", "index"))
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
+LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+LLM_MODEL = os.environ.get("LLM_MODEL", "glm-4.5-flash")
 HYBRID_DEFAULT = True  # ask 层默认走混合检索
 
 
