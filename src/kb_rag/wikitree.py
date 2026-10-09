@@ -66,22 +66,42 @@ def _section(text: str, name: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _status_files(dir_path: Path) -> list[str]:
+    """目录对应的权威状态文件（相对该目录）：STATUS.md 优先，其次 README.md。"""
+    out = []
+    for name in ("STATUS.md", "README.md"):
+        if (dir_path / name).exists():
+            out.append(name)
+    return out
+
+
+def _project_status_file(dir_path: Path) -> str | None:
+    """项目节点（含 项目状态/ 子目录）的状态文件，带 项目状态/ 前缀。"""
+    ps = dir_path / "项目状态"
+    if not ps.is_dir():
+        return None
+    for name in ("STATUS.md", "README.md"):
+        if (ps / name).exists():
+            return f"项目状态/{name}"
+    return None
+
+
 def _summary_input(root: Path, node: WikiNode) -> str:
     """目录→摘要输入：有状态/主页文件的目录吃文件内容，纯文件目录吃文件清单。"""
     d = root / node.path if node.path else root
     parts: list[str] = []
-    for name in ("STATUS.md", "README.md"):
+    # 项目节点的 status_file 带 项目状态/ 前缀；区域/根节点直接用目录内文件
+    for name in ([node.status_file] if node.status_file else []):
         f = d / name
-        if f.exists():
-            text = f.read_text(encoding="utf-8", errors="ignore")
-            meta = _frontmatter(text)
-            parts.append(f"{name} 元信息: " + "，".join(f"{k}={v}" for k, v in meta.items() if k in ("status", "updated")))
-            body = text.split("---", 2)[-1]
-            if name == "STATUS.md":
-                parts.append(body[:1500])
-            else:
-                sec = _section(body, "当前状态") or _section(body, "当前阶段") or body[:800]
-                parts.append(sec[:1200])
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        meta = _frontmatter(text)
+        parts.append(f"{name} 元信息: " + "，".join(f"{k}={v}" for k, v in meta.items() if k in ("status", "updated")))
+        body = text.split("---", 2)[-1]
+        if name.endswith("STATUS.md"):
+            parts.append(body[:1500])
+        else:
+            sec = _section(body, "当前状态") or _section(body, "当前阶段") or body[:800]
+            parts.append(sec[:1200])
     if not parts:  # 无 README/STATUS 的目录（如 Shared 子区）：文件清单即结构事实
         names = sorted(p.relative_to(root).as_posix() for p in d.iterdir() if not p.name.startswith("."))
         parts.append("包含文件: " + "；".join(names[:15]))
@@ -90,13 +110,11 @@ def _summary_input(root: Path, node: WikiNode) -> str:
 
 def _rule_summary(root: Path, node: WikiNode) -> str:
     d = root / node.path if node.path else root
-    text = ""
-    for name in ("STATUS.md", "README.md"):
-        if (d / name).exists():
-            text = (d / name).read_text(encoding="utf-8", errors="ignore")
-            meta = _frontmatter(text)
-            head = f"[{meta.get('status', '')}/{meta.get('updated', '')}] " if meta else ""
-            return head + text.split("---", 2)[-1].strip()[:200]
+    if node.status_file:
+        text = (d / node.status_file).read_text(encoding="utf-8", errors="ignore")
+        meta = _frontmatter(text)
+        head = f"[{meta.get('status', '')}/{meta.get('updated', '')}] " if meta else ""
+        return head + text.split("---", 2)[-1].strip()[:200]
     names = sorted(p.name for p in d.iterdir() if not p.name.startswith("."))[:8]
     return "包含：" + "、".join(names)
 
@@ -121,21 +139,38 @@ def _llm_summary(node: WikiNode, body: str) -> str | None:
 
 
 def _discover(root: Path) -> list[WikiNode]:
+    """两级结构：根 + 项目节点（含 项目状态/，状态文件从项目状态区取）+ 区域节点（如 Shared，展开一层子目录）。"""
     nodes = [WikiNode(path="", title="知识库根", summary="", status_file=None)]
     skip = {".obsidian", ".git", ".trash", "node_modules"}
+    for name in _status_files(root):  # 根节点状态文件（STATUS.md 优先）
+        nodes[0].status_file = name
+        break
     for depth1 in sorted(root.iterdir()):
-        if not depth1.is_dir() or depth1.name in skip:
+        if not depth1.is_dir() or depth1.name in skip or depth1.name.startswith(".") or depth1.name.startswith("_"):
             continue
         rel1 = depth1.name
-        nodes.append(WikiNode(path=rel1, title=rel1, summary="", status_file=None))
-        for depth2 in sorted(depth1.iterdir()):
-            if depth2.is_dir() and not depth2.name.startswith(".") and not depth2.name.startswith("_"):
-                rel2 = f"{rel1}/{depth2.name}"
-                nodes.append(WikiNode(path=rel2, title=depth2.name, summary="", status_file=None))
+        n = WikiNode(path=rel1, title=rel1, summary="", status_file=None)
+        project_status = _project_status_file(depth1)
+        if project_status:
+            n.status_file = project_status  # 项目节点：不展开 项目文件/ 仓库区
+        else:
+            for name in _status_files(depth1):
+                n.status_file = name
+                break
+            for depth2 in sorted(depth1.iterdir()):
+                if not depth2.is_dir() or depth2.name.startswith(".") or depth2.name.startswith("_"):
+                    continue
+                m = WikiNode(path=f"{rel1}/{depth2.name}", title=depth2.name, summary="", status_file=None)
+                for name in _status_files(depth2):
+                    m.status_file = name
+                    break
+                nodes.append(m)
+        nodes.append(n)
     for n in nodes:
-        d = root / n.path if n.path else root
-        n.status_file = "STATUS.md" if (d / "STATUS.md").exists() else ("README.md" if (d / "README.md").exists() else None)
-        n.children = sorted(m.path for m in nodes if m.path.startswith(n.path + "/") and m.path.count("/") == n.path.count("/") + 1) if n.path else []
+        n.children = sorted(
+            m.path for m in nodes
+            if m.path.startswith(n.path + "/") and m.path.count("/") == n.path.count("/") + 1
+        ) if n.path else []
     return nodes
 
 
@@ -154,9 +189,11 @@ def build_wiki(use_llm: bool = True) -> int:
         fp = hashlib.sha1(f"{n.title}|{body}".encode()).hexdigest()[:12]
         n.fingerprint = fp
         if n.path in old and old[n.path].get("fingerprint") == fp and old[n.path].get("summary"):
-            n.summary = old[n.path]["summary"]  # 内容没变，复用摘要不重花钱
-            n.summary_kind = old[n.path].get("summary_kind", "rule")
-            continue
+            if not (use_llm and old[n.path].get("summary_kind") == "rule"):
+                n.summary = old[n.path]["summary"]  # 内容没变，复用摘要不重花钱
+                n.summary_kind = old[n.path].get("summary_kind", "rule")
+                continue
+            # 规则回退产物在额度可用时重试 LLM（如 429 余额不足期的降级摘要）
         n.summary = _llm_summary(n, body) if use_llm else None
         if n.summary:
             n.summary_kind = "llm"

@@ -9,16 +9,16 @@ import numpy as np
 from .authority import apply as authority_apply
 from .config import INDEX_DIR, KB_PATH, validate_kb_path
 from .embedder import embed
-from .loader import chunk_markdown, load_markdown_files
+from .loader import chunk_file, load_text_files
 
 
 def build_index() -> int:
     root = validate_kb_path()
     t0 = time.time()
     chunks = []
-    for md in load_markdown_files(root):
-        rel = md.relative_to(root).as_posix()
-        chunks.extend(chunk_markdown(md.read_text(encoding="utf-8", errors="ignore"), rel))
+    for f, rel in load_text_files(root):
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        chunks.extend(chunk_file(text, rel, is_markdown=f.suffix.lower() == ".md"))
     vectors = np.array(embed([c.text for c in chunks]), dtype=np.float32)
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     vectors = vectors / np.maximum(norms, 1e-10)
