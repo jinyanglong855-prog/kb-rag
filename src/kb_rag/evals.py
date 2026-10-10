@@ -46,7 +46,7 @@ def _graph_context(question: str, mode: str = "mix") -> str:
 
     import asyncio
 
-    return asyncio.run(run)
+    return asyncio.run(run())
 
 
 def _eval_case(case: dict, skip_graph: bool) -> dict:
