@@ -39,8 +39,9 @@ def main() -> None:
     gq = sub.add_parser("graph", help="阶段3：图检索问答（跨项目多跳）")
     gq.add_argument("question")
     gq.add_argument("--mode", choices=["mix", "local", "global", "hybrid", "naive"], default="mix")
-    gv = sub.add_parser("graph-viz", help="阶段3：知识图谱导出 pyvis 交互 HTML")
+    gv = sub.add_parser("graph-viz", help="阶段3：知识图谱导出 pyvis 交互 HTML（默认度数前300实体）")
     gv.add_argument("--out", default=None)
+    gv.add_argument("--top", type=int, default=300)
     ag = sub.add_parser("agent", help="阶段4：Agentic 检索——LLM 自主调度五层工具回答")
     ag.add_argument("question")
     ag.add_argument("--max-steps", type=int, default=6)
@@ -101,7 +102,7 @@ def main() -> None:
     if args.cmd == "graph-viz":
         from .graph import export_viz
 
-        print(f"图谱可视化: {export_viz(args.out)}")
+        print(f"图谱可视化: {export_viz(args.out, args.top)}")
         return
     if args.cmd == "agent":
         from .agent import agent

@@ -153,8 +153,12 @@ def query_graph(question: str, mode: str = "mix") -> str:
     return asyncio.run(run())
 
 
-def export_viz(out_html: str | None = None) -> Path:
-    """把知识图谱导出为 pyvis 交互式 HTML（写入 index/，不进语料）。"""
+def export_viz(out_html: str | None = None, top: int = 300) -> Path:
+    """知识图谱导出 pyvis 交互 HTML。
+
+    默认按度数取前 top 个实体（全图数千节点直接渲染会卡死），按实体类型着色，
+    悬停显示描述；写入 index/（不进语料）。
+    """
     from networkx.readwrite import read_graphml
     from pyvis.network import Network
 
@@ -162,8 +166,24 @@ def export_viz(out_html: str | None = None) -> Path:
     if not kg.exists():
         raise SystemExit(f"图数据不存在: {kg}（先跑 graph-build）")
     g = read_graphml(kg)
+    top_nodes = sorted(g, key=lambda n: g.degree(n), reverse=True)[:top]
+    sub = g.subgraph(top_nodes)
+
+    colors = {
+        "person": "#e74c3c", "organization": "#e67e22", "artifact": "#f1c40f",
+        "concept": "#3498db", "method": "#9b59b6", "location": "#1abc9c",
+        "data": "#2ecc71", "event": "#e91e63", "creature": "#e74c3c",
+    }
     net = Network(height="900px", width="100%", bgcolor="#111", font_color="white")
-    net.from_nx(g)
+    for n, d in sub.nodes(data=True):
+        et = (d.get("entity_type") or "other").lower()
+        net.add_node(
+            n,
+            label=str(d.get("entity_id", n))[:24],
+            title=f"{d.get('entity_id', '')} [{et}]\n{str(d.get('description', ''))[:300]}",
+            color=colors.get(et, "#888"),
+        )
+    net.add_edges(sub.edges())
     net.repulsion(node_distance=120, spring_length=80)
     out = Path(out_html) if out_html else Path(INDEX_DIR) / "graph_viz.html"
     net.write_html(str(out))
