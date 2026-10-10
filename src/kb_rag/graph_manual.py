@@ -81,8 +81,13 @@ async def _upsert(rag, data: dict) -> dict:
     file_path = rel.replace("/", "／")
     created = merged = 0
 
+    # LightRAG 在 create/edit 内部会对实体名做规范化（去中英间空格、全角转半角等，
+    # 见 lightrag.utils.normalize_entity_name）；这里先规范化再查询/写入，否则同名
+    # 实体会被判为不存在而重复创建报错，关系也会找不到目标节点。
+    from lightrag.utils import normalize_entity_name
+
     for ent in data.get("entities", []):
-        name, desc = ent["name"].strip(), ent["description"].strip()
+        name, desc = normalize_entity_name(ent["name"]).strip(), ent["description"].strip()
         if not name or not desc:
             continue
         payload = {"entity_type": ent.get("entity_type", "content"),
@@ -98,7 +103,9 @@ async def _upsert(rag, data: dict) -> dict:
 
     rel_created = rel_merged = 0
     for r in data.get("relations", []):
-        src, tgt, desc = r["source"].strip(), r["target"].strip(), r["description"].strip()
+        src, tgt, desc = (normalize_entity_name(r["source"]).strip(),
+                          normalize_entity_name(r["target"]).strip(),
+                          r["description"].strip())
         if not (src and tgt and desc):
             continue
         try:
