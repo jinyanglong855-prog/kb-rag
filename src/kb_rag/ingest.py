@@ -1,8 +1,10 @@
-"""入库转换层：PDF/DOCX/TXT → Markdown 落入总库，随后自动增量入库。
+"""入库转换层：PDF/Office/HTML/EPUB/图片 → Markdown 落入总库，随后自动增量入库。
+
+转换后端是 docling（IBM 开源、LF AI & Data 基金会托管，MIT 许可，68k+ stars），
+版面模型负责标题层级、表格、双栏阅读顺序，扫描件/图片自带 OCR——不自研解析。
 
 设计取舍：
-- 转换是"提取"不是"排版复原"——目标是让内容可检索，不追求完美还原版式。
-- 扫描版 PDF（图片型）提取不到文本层，明确报错提示走 OCR，不静默产出空文件。
+- 转换目标是"内容可检索"且结构保真（表格转 md 表、标题转 md 标题），不追求像素级版式复原。
 - 输出默认进 Shared/参考资料/入库文件/，带来源 frontmatter；转换后自动跑增量索引。
 """
 
@@ -20,51 +22,33 @@ ingested: {today}
 
 """
 
-
-def _pdf_to_markdown(path: Path) -> str:
-    import fitz  # pymupdf
-
-    doc = fitz.open(path)
-    pages = []
-    for i, page in enumerate(doc, 1):
-        text = page.get_text("text").strip()
-        if text:
-            pages.append(f"## 第 {i} 页\n\n{text}")
-    doc.close()
-    if not pages:
-        raise ValueError("PDF 没有可提取的文本层（可能是扫描版），请先做 OCR 或换文字版")
-    return "\n\n".join(pages)
-
-
-def _docx_to_markdown(path: Path) -> str:
-    import docx
-
-    d = docx.Document(path)
-    lines: list[str] = []
-    for para in d.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
-        style = (para.style.name or "").lower()
-        if style.startswith("heading"):
-            try:
-                level = int(style.replace("heading", "").strip() or "1")
-            except ValueError:
-                level = 2
-            lines.append(f"{'#' * min(level + 1, 6)} {text}")
-        else:
-            lines.append(text)
-    if not lines:
-        raise ValueError("DOCX 没有可提取的正文")
-    return "\n\n".join(lines)
-
-
-CONVERTERS = {
-    ".pdf": _pdf_to_markdown,
-    ".docx": _docx_to_markdown,
-    ".txt": lambda p: p.read_text(encoding="utf-8", errors="ignore"),
-    ".md": lambda p: p.read_text(encoding="utf-8", errors="ignore"),
+# docling 原生解析格式；txt/md 无需解析直接读取
+DOCLING_EXTS = {
+    ".pdf", ".docx", ".pptx", ".xlsx",
+    ".html", ".htm", ".xhtml", ".epub",
+    ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".bmp",
 }
+PLAIN_EXTS = {".txt", ".md"}
+SUPPORTED_EXTS = DOCLING_EXTS | PLAIN_EXTS
+
+_converter = None
+
+
+def _docling():
+    global _converter
+    if _converter is None:
+        from docling.document_converter import DocumentConverter
+
+        _converter = DocumentConverter()
+    return _converter
+
+
+def _to_markdown(path: Path) -> str:
+    result = _docling().convert(str(path))
+    md = result.document.export_to_markdown().strip()
+    if not md:
+        raise ValueError(f"转换结果为空: {path.name}")
+    return md
 
 
 def ingest_file(source: str, target_dir: str | None = None) -> Path:
@@ -72,12 +56,16 @@ def ingest_file(source: str, target_dir: str | None = None) -> Path:
     src = Path(source).expanduser().resolve()
     if not src.is_file():
         raise SystemExit(f"文件不存在: {src}")
-    converter = CONVERTERS.get(src.suffix.lower())
-    if converter is None:
-        raise SystemExit(f"不支持的格式: {src.suffix}（当前支持 pdf/docx/txt/md）")
+    if src.suffix.lower() not in SUPPORTED_EXTS:
+        raise SystemExit(
+            f"不支持的格式: {src.suffix}（当前支持 pdf/docx/pptx/xlsx/html/epub/图片/txt/md）"
+        )
     validate_kb_path()
 
-    body = converter(src)
+    if src.suffix.lower() in PLAIN_EXTS:
+        body = src.read_text(encoding="utf-8", errors="ignore")
+    else:
+        body = _to_markdown(src)
     out_dir = KB_PATH / (target_dir or DEFAULT_TARGET)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{src.stem}.md"

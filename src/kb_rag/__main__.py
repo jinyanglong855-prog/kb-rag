@@ -18,7 +18,7 @@ def main() -> None:
     idx.add_argument("--chroma", action="store_true", help="从向量缓存导入 Chroma 持久库")
     idx.add_argument("--wiki", action="store_true", help="仅重建 Wiki 摘要树（内容未变走缓存）")
     sub.add_parser("add", help="增量入库：文件放进总库后跑此命令，秒级可检索（按文件指纹只重嵌变更）")
-    ing = sub.add_parser("ingest", help="PDF/DOCX/TXT → md 落入总库并增量入库")
+    ing = sub.add_parser("ingest", help="PDF/Word/PPT/Excel/HTML/EPUB/图片 → md 落入总库并增量入库（docling 后端）")
     ing.add_argument("file", help="源文件路径")
     ing.add_argument("--to", dest="target", default=None, help="库内目标目录（默认 Shared/参考资料/入库文件）")
     ing.add_argument("--no-index", action="store_true", help="只转换不建索引")
