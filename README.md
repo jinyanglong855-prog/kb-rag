@@ -1,6 +1,6 @@
 # kb-rag · 项目文件总库检索：六阶段演进
 
-对总库（Obsidian 知识库 + 真实项目文件融合，`/Users/yljin/Documents/项目文件`）的 754 个文件（5024 个语义块：md 文档 + 已迁入源码/配置）做检索增强，从朴素 RAG 一路演进到 Agentic GraphRAG。每个阶段独立可讲：解决什么问题、为什么这个规模选这个组件。
+对总库（Obsidian 知识库 + 真实项目文件融合，`/Users/yljin/Documents/项目文件`）的 1881 个文件（13855 个语义块：md 文档 + 已迁入源码/配置）做检索增强，从朴素 RAG 一路演进到 Agentic GraphRAG。每个阶段独立可讲：解决什么问题、为什么这个规模选这个组件。
 
 2026-10-09 起本项目独立承载全库检索（从个人画像项目解耦，仓库迁入 `kb-rag/项目文件/`）：知识库与真实代码同库，AI 对话直接 `ask/query` 检索，状态类问题自动走结构层。
 
@@ -10,11 +10,11 @@
 | --- | --- | --- | --- |
 | 0 | 朴素 RAG：BGE-zh 嵌入 + numpy 余弦 | 基线 | ✅ |
 | 1 | 混合检索（BM25+向量 RRF）+ 路径权威性加权 + 交叉编码器精排 + Chroma 持久库 | 关键词精确性、结构权威性、语义精排、规模边界 | ✅ |
-| 1.5 | 问答生成层：hybrid 检索 → GLM-5.3-flash 生成带 [n] 引用的回答（OpenAI 兼容接口，供应商可换） | RAG 闭环 | ✅ |
-| 2 | Wiki 化层：目录层级摘要树（PageIndex/RAPTOR 思路），状态类问题先走目录、状态页整文件进上下文 | "项目状态"类问题命中结构页而非归档；STATUS 长文切块召回不全 | ✅ 当前 |
-| 3 | mini-GraphRAG：LLM 抽实体关系 → networkx → 多跳检索 → pyvis 可视化，对比 LightRAG | 跨项目多跳问题 | 待做 |
-| 4 | Agentic RAG：各层检索做成 tools，LLM 自主调度 | 检索策略自适应；**融合目标：作为知识插件接入公司智能体框架（DeepSeek Harness）** | 待做 |
-| 5 | evals：自建单跳/多跳评测集，五层检索匹配率对比 | 可量化地证明每层的价值 | 待做 |
+| 1.5 | 问答生成层：hybrid 检索 → LLM 生成带 [n] 引用的回答（OpenAI 兼容接口，2026-10-10 起 deepseek-chat） | RAG 闭环 | ✅ |
+| 2 | Wiki 化层：目录层级摘要树（PageIndex/RAPTOR 思路），状态类问题先走目录、状态页整文件进上下文 | "项目状态"类问题命中结构页而非归档；STATUS 长文切块召回不全 | ✅ |
+| 3 | GraphRAG：**LightRAG 整合**（40.1k★，MIT）——LLM 抽实体关系→networkx 图→mix/local/global 多跳检索→pyvis 可视化 | 跨项目多跳问题 | ✅ |
+| 4 | Agentic RAG：五层检索做成 schema 规范 tools（DeepSeek 原生 function calling），参考调度循环证明 LLM 自主选层可行 | 检索策略自适应；**融合目标：作为知识插件接入公司智能体框架（DeepSeek Harness）** | ✅ |
+| 5 | evals：12 题自建评测集（单跳/状态/多跳），五层检索匹配率对比，报告落 `项目状态/参考资料/evals_report.json` | 可量化地证明每层的价值 | ✅ |
 
 ## 阶段 0 的设计决策（第一性原理）
 
@@ -62,16 +62,40 @@
 
 问"小红书宠物项目现在卡在哪一步"，top3 命中的是 `Shared/归档/` 的历史快照，而正确答案在 `小红书宠物/项目状态/STATUS.md`——朴素向量检索不理解**文档新鲜度与结构权威性**。这正是阶段 1（精排）/2（结构层）/3（图）要解决的。
 
+## 阶段 3 的设计决策（2026-10-10）
+
+- **整合 LightRAG 而非自建 mini**：注册方案原是"自建 mini-GraphRAG 再对比 LightRAG"。按复用优先规则（拆最小流程→逐流程找 >2k★ 项目）重新侦察后改判：LightRAG（40.1k★，MIT，活跃）完整覆盖注册方案全部四件事（LLM 抽实体关系、networkx 图存储、local/global/hybrid/mix 多跳检索、可导图可视化），还自带注册方案没解决的增量插入/删除。自建只剩余"重复造轮子"。
+- **图谱语料比主检索窄一档**：只收活跃区 md（535 文件，排除归档/历史区）。多跳问题的价值在活跃知识，把 200+ 篇历史归档抽进图会注入过期实体关系污染答案；主检索层语料不受影响。
+- **增量接现有指纹模式**：`index/graph_meta.json` 存路径→SHA-1；变更文件 `adelete_by_doc_id`（路径派生稳定 id）+`ainsert`，删除文件只删不插——与 search.py 的增量语义同构。
+- **翻车与修复（保留记录）**：LightRAG 按文件名 basename 判重且 doc_id 以其为种子——库里几十个不同项目下的 `README.md`/`STATUS.md` 互撞，45/93 文档被误判 duplicate 拒收。修复：file_paths 用全角斜杠 `／` 连接完整相对路径（`kb-rag／项目状态／README.md`），既过 basename 折叠又保持引用可读。教训：**整合外部库先跑小样本全量校验写入路径，别等全量跑到一半才发现系统性拒收**。
+- **嵌入零成本**：LightRAG 的 EmbeddingFunc 包装本项目本地 fastembed（BGE-small-zh，512 维），图谱向量不调外部 API；LLM 走 OpenAI 兼容接口（deepseek-chat）。
+
+## 阶段 4 的设计决策（2026-10-10）
+
+- **tools 是给公司智能体准备的**：五个 schema 规范工具（vector_search / hybrid_search / status_lookup / graph_query / read_file）就是未来 DSH 知识插件的接口定义；本仓库的调度循环只是参考实现。
+- **不引入 agent 框架**：生产调度器是公司智能体项目选定的 DeepSeek Harness；这里用 DeepSeek 原生 function calling 写百行级薄循环，塞 LangChain/smolagents 进最小依赖项目是双框架负担。
+- **实测调度正确**：状态类问题自主先 `status_lookup` 再 `hybrid_search` 补充；对未读到的文件如实说明而不是编造（2026-10-10 实测记录）。
+
+## 阶段 5 的设计决策（2026-10-10）
+
+- **评测集外置于语料**：`项目状态/参考资料/eval_set.json`（该区 json 不进检索语料）——评测集进语料会造成问题原文命中自己的自污染。12 题（5 单跳/3 状态/4 多跳），每题黄金路径经 grep 验证确实含答案事实，评测可信度先于规模。
+- **五层对比**：vector@5 / hybrid@8 / hybrid+rerank@5 / status路由 / graph（only_need_context 上下文路径匹配）。无图基线（2026-10-10）：vector 38%、hybrid 88%、rerank 88%、status 路由 100%——状态题结构层 100% vs 块检索最好 88%，阶段 2 的价值第一次有了数字。完整含图对照跑 `uv run kb-rag evals`。
+
 ## 用法
 
 ```bash
 cp .env.example .env   # 填 KB_PATH 与 LLM_API_KEY（知识库只读引用，笔记不入库）
 uv sync
 uv run kb-rag add                   # 日常入库：文件放进总库后跑此命令，按文件指纹秒级增量
+uv run kb-rag ingest 文件.pdf        # PDF/Word/PPT/Excel/HTML/EPUB/图片 → md 落库+自动增量（docling 后端）
 uv run kb-rag index                 # 全量重建（结构大改/首次/检索规则变更后）；wiki 摘要未变走缓存
 uv run kb-rag query "问题" --mode hybrid --rerank   # 检索（可换 --mode vector/chroma 对照）
 uv run kb-rag ask "问题"            # 检索+生成：带 [n] 引用；状态类问题自动先走结构层
 uv run kb-rag wiki                  # 查看摘要树；带问题则只看目录路由命中
+uv run kb-rag graph-build           # 阶段3：LightRAG 增量建图（--full 全量；--scope 子树）
+uv run kb-rag graph "问题"          # 阶段3：图检索多跳问答；graph-viz 导出 pyvis 可视化
+uv run kb-rag agent "问题"          # 阶段4：LLM 自主调度五层检索工具回答（打印工具轨迹）
+uv run kb-rag evals                 # 阶段5：跑评测集输出五层匹配率对比
 ```
 
 ## 设计决策索引
