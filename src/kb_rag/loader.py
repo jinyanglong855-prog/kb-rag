@@ -14,12 +14,19 @@ SKIP_DIRS = {
     ".venv", "venv", "__pycache__", ".pytest_cache",
     "index", "dist", "build", ".idea", ".vscode",
 }
+# 非 md 文件的额外排除：运行记录、审计回执、数据快照——它们是过程/数据，不是知识。
+# md 不受此清单影响（知识库正文全收，权威性交给加权层）。
+NON_MD_SKIP_DIRS = {
+    "work", "outputs", "logs", "delivery", "archive", "归档", "predictions",
+    "backups", "state", "releases", "history", "数据区", "原始快照",
+}
 TEXT_EXTS = {
     ".md",
     ".py", ".ts", ".tsx", ".js", ".mjs", ".json",
     ".toml", ".yaml", ".yml", ".sh", ".sql",
 }
-MAX_FILE_CHARS = 200_000  # 超过视为数据文件而非文档，不进语料
+MAX_FILE_CHARS = 200_000  # md 超限截断；非 md 超限整文件跳过
+MAX_NON_MD_BYTES = 100_000  # 非 md 源码/配置上限（vendor 压缩库远超此值）
 
 
 @dataclass(frozen=True)
@@ -49,7 +56,11 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
         if suffix != ".md":
             if "项目文件" not in rel_parts and rel_parts[0] != "Shared":
                 continue
-            if p.stat().st_size > MAX_FILE_CHARS:
+            if any(part in NON_MD_SKIP_DIRS for part in rel_parts):
+                continue
+            if ".min." in p.name:
+                continue
+            if p.stat().st_size > MAX_NON_MD_BYTES:
                 continue
         out.append((p, p.relative_to(root).as_posix()))
     return out
