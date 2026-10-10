@@ -108,6 +108,41 @@ def incremental_index() -> dict:
             "total": len(all_chunks), "seconds": time.time() - t0}
 
 
+def staleness() -> dict:
+    """索引新鲜度：对比磁盘文件指纹与 meta.json 已索引指纹（ask 的 L2 查询兜底）。
+
+    mode=missing 表示索引尚未建立；stale 表示有文件新增/变更/删除未入库。
+    只核对切块主索引；wiki 摘要树的路由新鲜度由 index --wiki 维护。
+    """
+    root = validate_kb_path()
+    meta_path = Path(INDEX_DIR) / META_JSON
+    if not meta_path.exists():
+        return {"mode": "missing", "changed": 0, "deleted": 0, "total": 0}
+    old = json.loads(meta_path.read_text(encoding="utf-8"))["hashes"]
+    new = _scan_hashes(root)
+    changed = sum(1 for rel, h in new.items() if old.get(rel) != h)
+    deleted = len(set(old) - set(new))
+    return {"mode": "stale" if (changed or deleted) else "clean",
+            "changed": changed, "deleted": deleted, "total": len(new)}
+
+
+def sync_incremental() -> dict:
+    """增量入库并同步 BM25；Chroma 打过期标记延迟同步。
+
+    ask/hybrid 的默认检索路径只依赖 BM25+numpy（秒级），Chroma 全量重灌
+    随语料线性变慢，不阻塞收口——下次 --mode chroma 查询时按标记重建。
+    `add` 命令与 ask 的过期自动补齐共用此入口——保证两条路径行为一致。
+    """
+    r = incremental_index()
+    if r["mode"] in ("delta", "full"):
+        from .hybrid import build_bm25_index
+        from .store import mark_stale
+
+        build_bm25_index()
+        mark_stale()
+    return r
+
+
 def query(question: str, k: int = 5) -> list[dict]:
     index_dir = Path(INDEX_DIR)
     vectors = np.load(index_dir / "vectors.npy")

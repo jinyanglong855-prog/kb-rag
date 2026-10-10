@@ -15,9 +15,23 @@ from .config import INDEX_DIR
 from .embedder import embed
 
 
+STALE_MARKER = "chroma_stale"  # 增量入库后 Chroma 延迟同步的标记文件
+
+
 def _collection():
     client = chromadb.PersistentClient(path=str(Path(INDEX_DIR) / "chroma"))
     return client.get_or_create_collection("kb_chunks", metadata={"hnsw:space": "cosine"})
+
+
+def mark_stale() -> None:
+    """增量入库后标记 Chroma 待同步：默认检索路径（BM25+numpy）不经过 Chroma，
+    全量重灌 93k 块需数分钟，不应阻塞收口；下次 chroma 查询或 index --chroma 时重建。"""
+    Path(INDEX_DIR).mkdir(exist_ok=True)
+    (Path(INDEX_DIR) / STALE_MARKER).write_text("stale", encoding="utf-8")
+
+
+def _is_stale() -> bool:
+    return (Path(INDEX_DIR) / STALE_MARKER).exists()
 
 
 def build_chroma() -> int:
@@ -36,11 +50,15 @@ def build_chroma() -> int:
             documents=[c["text"] for c in chunks[start:end]],
             metadatas=[{"path": c["path"], "heading": c["heading"]} for c in chunks[start:end]],
         )
+    (Path(INDEX_DIR) / STALE_MARKER).unlink(missing_ok=True)
     print(f"Chroma 索引完成: {col.count()} 块")
     return col.count()
 
 
 def chroma_query(question: str, k: int = 5) -> list[dict]:
+    if _is_stale():
+        print("Chroma 索引已过期，先同步（一次性，约数分钟）……")
+        build_chroma()
     col = _collection()
     q = embed([question])[0]
     res = col.query(query_embeddings=[q], n_results=k)
