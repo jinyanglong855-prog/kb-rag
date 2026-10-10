@@ -116,6 +116,22 @@ _DISPATCH = {
 }
 
 
+def tool_specs() -> list[dict]:
+    """五层检索工具的 {name, description, parameters} 列表。
+
+    MCP server（server.py）与 DSH 知识插件共用这份定义——schema 只写一次。
+    """
+    return [{"name": t["function"]["name"], "description": t["function"]["description"],
+             "parameters": t["function"]["parameters"]} for t in TOOLS_SPEC]
+
+
+def run_tool(name: str, **kwargs) -> str:
+    """按名执行一个检索工具（外部调度器/插件的工具执行入口）。"""
+    if name not in _DISPATCH:
+        raise ValueError(f"未知工具: {name}，可用: {sorted(_DISPATCH)}")
+    return _DISPATCH[name](**kwargs)
+
+
 def agent(question: str, max_steps: int = MAX_STEPS) -> str:
     """LLM 自主调度五层检索工具直到给出最终回答，返回 (回答, 调用轨迹)。"""
     validate_kb_path()

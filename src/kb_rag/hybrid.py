@@ -53,6 +53,8 @@ def _load_chunks() -> list[dict]:
 def hybrid_query(question: str, k: int = 5, vector_candidates: int = 20) -> list[dict]:
     """RRF: score = Σ 1/(60 + rank)。两路各取候选，按融合分排序。"""
     chunks = _load_chunks()
+    # 候选数不超过语料规模（bm25s 对 k > corpus 抛错；tiny 语料/单测场景触发）
+    vector_candidates = min(vector_candidates, len(chunks))
 
     vec_hits = vector_query(question, k=vector_candidates)
     path_to_rank = {h["path"] + "#" + h["heading"]: r for r, h in enumerate(vec_hits, 1)}
