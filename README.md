@@ -67,7 +67,8 @@
 ```bash
 cp .env.example .env   # 填 KB_PATH 与 LLM_API_KEY（知识库只读引用，笔记不入库）
 uv sync
-uv run kb-rag index                 # 向量+BM25+Chroma+Wiki 摘要树 四索引（wiki 内容未变走缓存）
+uv run kb-rag add                   # 日常入库：文件放进总库后跑此命令，按文件指纹秒级增量
+uv run kb-rag index                 # 全量重建（结构大改/首次/检索规则变更后）；wiki 摘要未变走缓存
 uv run kb-rag query "问题" --mode hybrid --rerank   # 检索（可换 --mode vector/chroma 对照）
 uv run kb-rag ask "问题"            # 检索+生成：带 [n] 引用；状态类问题自动先走结构层
 uv run kb-rag wiki                  # 查看摘要树；带问题则只看目录路由命中

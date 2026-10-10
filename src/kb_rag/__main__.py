@@ -1,4 +1,4 @@
-"""CLI: uv run kb-rag index | query "问题" | ask "问题" | wiki ["问题"]"""
+"""CLI: uv run kb-rag index | add | query "问题" | ask "问题" | wiki ["问题"]"""
 
 import argparse
 
@@ -13,10 +13,11 @@ from .wikitree import build_wiki, show_tree, wiki_query
 def main() -> None:
     parser = argparse.ArgumentParser(prog="kb-rag")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    idx = sub.add_parser("index", help="对知识库建索引")
+    idx = sub.add_parser("index", help="全量重建索引（结构大改/首次/规则变更后）")
     idx.add_argument("--bm25", action="store_true", help="仅重建 BM25 索引（复用已有向量块缓存）")
     idx.add_argument("--chroma", action="store_true", help="从向量缓存导入 Chroma 持久库")
     idx.add_argument("--wiki", action="store_true", help="仅重建 Wiki 摘要树（内容未变走缓存）")
+    sub.add_parser("add", help="增量入库：文件放进总库后跑此命令，秒级可检索（按文件指纹只重嵌变更）")
     q = sub.add_parser("query", help="语义检索知识库")
     q.add_argument("question")
     q.add_argument("-k", type=int, default=5)
@@ -54,6 +55,21 @@ def main() -> None:
             build_bm25_index()
             build_chroma()
             build_wiki()
+        return
+    if args.cmd == "add":
+        from .search import incremental_index
+
+        r = incremental_index()
+        if r["mode"] == "clean":
+            print(f"语料无变化，共 {r['total']} 块 / {r['seconds']:.1f}s")
+            return
+        if r["mode"] == "full":
+            print("首次增量：已自动执行全量索引（生成文件指纹缓存，此后 add 为秒级）")
+            return
+        build_bm25_index()
+        build_chroma()
+        print(f"增量入库完成: +{r['added']} 块 / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
+        return
     else:
         if args.mode == "hybrid":
             hits = hybrid_query(args.question, args.k)
