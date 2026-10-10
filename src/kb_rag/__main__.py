@@ -47,6 +47,10 @@ def main() -> None:
     ag.add_argument("--max-steps", type=int, default=6)
     ev = sub.add_parser("evals", help="阶段5：跑评测集，五层检索匹配率对比（--skip-graph 跳过图层）")
     ev.add_argument("--skip-graph", action="store_true")
+    ml = sub.add_parser("manual-list", help="零API建图：列出尚未进图的文档（基础构建优先级排序）")
+    mi = sub.add_parser("manual-ingest", help="零API建图：把抽取 JSON 灌入图并标记完成")
+    mi.add_argument("json_file")
+    ms = sub.add_parser("manual-status", help="零API建图：查看进图进度")
     args = parser.parse_args()
 
     if args.cmd == "ask":
@@ -119,6 +123,25 @@ def main() -> None:
         from .evals import run_evals
 
         run_evals(skip_graph=args.skip_graph)
+        return
+    if args.cmd == "manual-list":
+        from .graph_manual import remaining_docs
+
+        for rel in remaining_docs():
+            print(rel)
+        return
+    if args.cmd == "manual-ingest":
+        from .graph_manual import ingest_manual
+
+        print(ingest_manual(args.json_file))
+        return
+    if args.cmd == "manual-status":
+        from .graph_manual import manual_status
+
+        s = manual_status()
+        print(f"已完成 {s['done']}/{s['total']}，剩余 {s['remaining']}")
+        for rel in s["next"]:
+            print(f"  待处理: {rel}")
         return
     if args.cmd == "ingest":
         from .ingest import ingest_file

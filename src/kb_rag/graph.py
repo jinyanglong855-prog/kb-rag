@@ -57,7 +57,7 @@ def _save_meta(hashes: dict[str, str]) -> None:
     _meta_path().write_text(json.dumps(hashes, ensure_ascii=False, indent=1))
 
 
-async def _make_rag():
+async def _make_rag(no_llm: bool = False):
     from lightrag import LightRAG
     from lightrag.base import EmbeddingFunc
     from lightrag.llm.openai import openai_complete_if_cache
@@ -65,6 +65,9 @@ async def _make_rag():
     from .embedder import embed
 
     async def llm_func(prompt, system_prompt=None, history_messages=None, **kwargs):
+        if no_llm:
+            # 手动灌图路径的保险丝：任何意外 LLM 调用立即暴露，而不是偷偷花钱
+            raise RuntimeError("零 API 路径意外触发 LLM 调用——检查调用链")
         return await openai_complete_if_cache(
             LLM_MODEL,
             prompt,
