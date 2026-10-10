@@ -1,6 +1,7 @@
-"""CLI: uv run kb-rag index | add | query "问题" | ask "问题" | wiki ["问题"] | manifest"""
+"""CLI: uv run kb-rag index | add | query | ask | wiki | manifest | write | serve"""
 
 import argparse
+from pathlib import Path
 
 from .hybrid import build_bm25_index, hybrid_query
 from .rerank import rerank
@@ -34,6 +35,11 @@ def main() -> None:
     w.add_argument("question", nargs="?", default=None)
     w.add_argument("-k", type=int, default=3)
     sub.add_parser("manifest", help="机器可读契约：项目清单/别名/写入约定/索引新鲜度（宿主 agent 接入入口）")
+    w2 = sub.add_parser("write", help="写路径 API：校验→scope→审计→自动增量索引（frontmatter 必须含 type/updated/status/lifecycle）")
+    w2.add_argument("--path", dest="rel_path", required=True, help="库内相对路径（仅 .md）")
+    w2.add_argument("--from", dest="source", default=None, help="内容来源文件；缺省读 stdin")
+    w2.add_argument("--caller", default="cli", help="调用者标识（进审计日志）")
+    sub.add_parser("serve", help="启动 MCP stdio server（DSH 知识插件接入点；等价 kb-rag-mcp）")
     gb = sub.add_parser("graph-build", help="阶段3：LightRAG 增量建图（--full 全量重建；--scope 只建某子树）")
     gb.add_argument("--full", action="store_true")
     gb.add_argument("--scope", default=None, help="相对路径前缀，如 kb-rag/")
@@ -61,6 +67,23 @@ def main() -> None:
         from .manifest import manifest_text
 
         print(manifest_text())
+        return
+    if args.cmd == "write":
+        import json
+        import sys
+
+        from .writer import write_entry
+
+        if args.source:
+            content = Path(args.source).read_text(encoding="utf-8")
+        else:
+            content = sys.stdin.read()
+        print(json.dumps(write_entry(content, args.rel_path, args.caller), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "serve":
+        from .server import main as serve_main
+
+        serve_main()
         return
     if args.cmd == "wiki":
         if args.question:

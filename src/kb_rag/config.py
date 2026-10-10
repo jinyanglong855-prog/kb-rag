@@ -6,9 +6,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+# MCP/服务形态从任意 cwd 启动时也能找到项目 .env（load_dotenv 不覆盖已有环境变量）
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 KB_PATH = Path(os.environ.get("KB_PATH", ""))
-INDEX_DIR = Path(os.environ.get("INDEX_DIR", "index"))
+# INDEX_DIR 锚定仓库根而非 cwd：测试/服务进程换 KB_PATH 或 cwd 时，
+# 索引产物不允许跟随 cwd 落到错误位置（相对路径会指向"当前目录的 index/"）
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_raw_index_dir = os.environ.get("INDEX_DIR", "index")
+INDEX_DIR = Path(_raw_index_dir) if Path(_raw_index_dir).is_absolute() else _REPO_ROOT / _raw_index_dir
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
