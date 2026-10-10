@@ -26,12 +26,16 @@ def build_chroma() -> int:
     col = _collection()
     if col.count():
         col.delete(ids=[f"kb{i}" for i in range(col.count())])
-    col.add(
-        ids=[f"kb{i}" for i in range(len(chunks))],
-        embeddings=vectors.tolist(),
-        documents=[c["text"] for c in chunks],
-        metadatas=[{"path": c["path"], "heading": c["heading"]} for c in chunks],
-    )
+    # Chroma 单批上限约 5461（语料增长后分批写入）
+    batch = 5000
+    for start in range(0, len(chunks), batch):
+        end = min(start + batch, len(chunks))
+        col.add(
+            ids=[f"kb{i}" for i in range(start, end)],
+            embeddings=vectors[start:end].tolist(),
+            documents=[c["text"] for c in chunks[start:end]],
+            metadatas=[{"path": c["path"], "heading": c["heading"]} for c in chunks[start:end]],
+        )
     print(f"Chroma 索引完成: {col.count()} 块")
     return col.count()
 
