@@ -1,4 +1,4 @@
-"""CLI: uv run kb-rag index | add | query "问题" | ask "问题" | wiki ["问题"]"""
+"""CLI: uv run kb-rag index | add | query "问题" | ask "问题" | wiki ["问题"] | manifest"""
 
 import argparse
 
@@ -27,12 +27,13 @@ def main() -> None:
     q.add_argument("-k", type=int, default=5)
     q.add_argument("--mode", choices=["vector", "hybrid", "chroma"], default="vector")
     q.add_argument("--rerank", action="store_true", help="交叉编码器精排（首次运行需下载模型）")
-    a = sub.add_parser("ask", help="检索+生成：带引用的回答（需 LLM_API_KEY）")
+    a = sub.add_parser("ask", help="检索+生成：带引用的回答（需 LLM_API_KEY；索引过期自动增量补齐）")
     a.add_argument("question")
     a.add_argument("-k", type=int, default=5)
     w = sub.add_parser("wiki", help="结构层：无参数=查看摘要树；带问题=看目录路由命中")
     w.add_argument("question", nargs="?", default=None)
     w.add_argument("-k", type=int, default=3)
+    sub.add_parser("manifest", help="机器可读契约：项目清单/别名/写入约定/索引新鲜度（宿主 agent 接入入口）")
     gb = sub.add_parser("graph-build", help="阶段3：LightRAG 增量建图（--full 全量重建；--scope 只建某子树）")
     gb.add_argument("--full", action="store_true")
     gb.add_argument("--scope", default=None, help="相对路径前缀，如 kb-rag/")
@@ -55,6 +56,11 @@ def main() -> None:
 
     if args.cmd == "ask":
         print(ask(args.question, args.k))
+        return
+    if args.cmd == "manifest":
+        from .manifest import manifest_text
+
+        print(manifest_text())
         return
     if args.cmd == "wiki":
         if args.question:
@@ -79,17 +85,15 @@ def main() -> None:
             build_wiki()
         return
     if args.cmd == "add":
-        from .search import incremental_index
+        from .search import sync_incremental
 
-        r = incremental_index()
+        r = sync_incremental()
         if r["mode"] == "clean":
             print(f"语料无变化，共 {r['total']} 块 / {r['seconds']:.1f}s")
             return
         if r["mode"] == "full":
             print("首次增量：已自动执行全量索引（生成文件指纹缓存，此后 add 为秒级）")
             return
-        build_bm25_index()
-        build_chroma()
         print(f"增量入库完成: +{r['added']} 块 / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
         return
     if args.cmd == "graph-build":
@@ -145,15 +149,13 @@ def main() -> None:
         return
     if args.cmd == "ingest":
         from .ingest import ingest_file
-        from .search import incremental_index
+        from .search import sync_incremental
 
         out = ingest_file(args.file, args.target)
         print(f"已转换: {out}")
         if not args.no_index:
-            r = incremental_index()
+            r = sync_incremental()
             if r["mode"] in ("delta", "full"):
-                build_bm25_index()
-                build_chroma()
                 print(f"增量入库完成: +{r['added']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
             else:
                 print("增量入库：语料无变化")

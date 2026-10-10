@@ -6,15 +6,23 @@
 阶段 2 路由：状态类问题（进度/卡点/下一步）先走结构层——目录摘要树命中
 项目节点后，整份状态文件进入上下文，解决"STATUS 长文切块召回不全"。
 路由是显式关键词规则（与权威性加权同一哲学：可解释，不做黑盒意图分类）。
+
+插件自描述（面向任意宿主 agent / 多用户）：
+- 别名消解在库内完成：口语简称（"创作台"/"TK"）→ 项目状态页直接入上下文，
+  不依赖宿主 agent 记得查别名索引。
+- L2 新鲜度兜底：回答前对比文件指纹，索引过期先增量补齐（本地嵌入，无
+  LLM 开销）——"拿旧知识回答"从静默错误变成被修复的前置步骤。
 """
 
 import re
 
 from openai import OpenAI
 
-from .config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from .aliases import resolve_aliases
+from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .hybrid import hybrid_query
-from .wikitree import wiki_query
+from .search import staleness, sync_incremental
+from .wikitree import FILE_TEXT_CHARS, wiki_query
 
 PROMPT = """你是本地知识库的问答助手。只依据提供的资料回答，不编造。
 资料中每条带编号；若包含"状态页（整文件）"，它反映该项目最新状态，优先采信。
@@ -36,24 +44,76 @@ STATUS_INTENT = re.compile(
     r"|现在|目前|最近|计划|打算|安排|暂停|停止|停了|停掉|取消|放弃|继续"
 )
 
+ALIAS_ENTRY_CHARS = 1200  # 非状态问题里，别名命中项目的状态页只带入入口摘要
+
 
 def _is_status_question(q: str) -> bool:
     return bool(STATUS_INTENT.search(q))
+
+
+def _project_status_rel(project: str) -> str:
+    """项目（"" 为总库根）的权威状态文件相对路径；无则空串。"""
+    base = KB_PATH / project if project else KB_PATH
+    if project:
+        for name in ("STATUS.md", "README.md"):
+            if (base / "项目状态" / name).exists():
+                return f"{project}/项目状态/{name}"
+        return ""
+    for name in ("STATUS.md", "README.md"):
+        if (base / name).exists():
+            return name
+    return ""
+
+
+def _alias_sources(question: str, is_status: bool) -> dict[str, tuple[str, str]]:
+    """别名命中项目的状态页 → (状态文件相对路径 -> (来源标签, 内容))。"""
+    out: dict[str, tuple[str, str]] = {}
+    for hit in resolve_aliases(question):
+        rel = _project_status_rel(hit.project)
+        if not rel or rel in out:
+            continue
+        text = (KB_PATH / rel).read_text(encoding="utf-8", errors="ignore")
+        limit = FILE_TEXT_CHARS if is_status else ALIAS_ENTRY_CHARS
+        name = "总库根" if not hit.project else hit.project
+        out[rel] = (f"{rel}（别名“{hit.alias}”→{name}·状态页）", text[:limit])
+    return out
 
 
 def ask(question: str, k: int = 5) -> str:
     if not LLM_API_KEY:
         raise SystemExit("请在 .env 里填 LLM_API_KEY（智谱/DeepSeek 均可，接口兼容 OpenAI SDK）")
 
+    # L2 新鲜度兜底：索引缺失/过期先补齐再回答，保证引用反映库内当前内容
+    notice = ""
+    st = staleness()
+    if st["mode"] != "clean":
+        r = sync_incremental()
+        if r["mode"] == "full":
+            notice = "⚠ 索引缺失，已自动全量构建后回答。\n\n"
+        elif r["mode"] == "delta":
+            notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
+                      f"已自动增量入库（+{r['added']} 块 / {r['seconds']:.1f}s）后回答。\n\n")
+
+    is_status = _is_status_question(question)
+    alias_srcs = _alias_sources(question, is_status)
+
     sources: list[tuple[str, str]] = []  # (来源标签, 内容)
-    if _is_status_question(question):
+    added_rels: set[str] = set()
+    for rel, (label, text) in alias_srcs.items():  # 别名命中优先，引用编号靠前
+        sources.append((label, text))
+        added_rels.add(rel)
+    if is_status:
         for w in wiki_query(question, k=3):
             if w["status_file"]:
-                sources.append((f"{w['status_file']}（{w['title']}·状态页整文件）",
+                rel = f"{w['path']}/{w['status_file']}" if w["path"] != "（根目录）" else w["status_file"]
+                if rel in added_rels:
+                    continue  # 别名已带入同一份状态页，不重复
+                sources.append((f"{rel}（{w['title']}·状态页整文件）",
                                 f"节点摘要：{w['summary']}\n{w['file_text']}"))
+                added_rels.add(rel)
     hits = hybrid_query(question, k=k)
     if not hits and not sources:
-        return "知识库中没有检索到相关内容。"
+        return notice + "知识库中没有检索到相关内容。"
     for h in hits:
         sources.append((f"{h['path']} #{h['heading']}", h["text"][:800]))
 
@@ -66,4 +126,4 @@ def ask(question: str, k: int = 5) -> str:
     )
     answer = resp.choices[0].message.content
     footer = "\n".join(f"[{i}] {label}" for i, (label, _) in enumerate(sources, 1))
-    return f"{answer}\n\n来源：\n{footer}"
+    return f"{notice}{answer}\n\n来源：\n{footer}"
