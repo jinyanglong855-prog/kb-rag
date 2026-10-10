@@ -18,6 +18,10 @@ def main() -> None:
     idx.add_argument("--chroma", action="store_true", help="从向量缓存导入 Chroma 持久库")
     idx.add_argument("--wiki", action="store_true", help="仅重建 Wiki 摘要树（内容未变走缓存）")
     sub.add_parser("add", help="增量入库：文件放进总库后跑此命令，秒级可检索（按文件指纹只重嵌变更）")
+    ing = sub.add_parser("ingest", help="PDF/DOCX/TXT → md 落入总库并增量入库")
+    ing.add_argument("file", help="源文件路径")
+    ing.add_argument("--to", dest="target", default=None, help="库内目标目录（默认 Shared/参考资料/入库文件）")
+    ing.add_argument("--no-index", action="store_true", help="只转换不建索引")
     q = sub.add_parser("query", help="语义检索知识库")
     q.add_argument("question")
     q.add_argument("-k", type=int, default=5)
@@ -69,6 +73,21 @@ def main() -> None:
         build_bm25_index()
         build_chroma()
         print(f"增量入库完成: +{r['added']} 块 / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
+        return
+    if args.cmd == "ingest":
+        from .ingest import ingest_file
+        from .search import incremental_index
+
+        out = ingest_file(args.file, args.target)
+        print(f"已转换: {out}")
+        if not args.no_index:
+            r = incremental_index()
+            if r["mode"] in ("delta", "full"):
+                build_bm25_index()
+                build_chroma()
+                print(f"增量入库完成: +{r['added']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
+            else:
+                print("增量入库：语料无变化")
         return
     else:
         if args.mode == "hybrid":
