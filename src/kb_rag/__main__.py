@@ -33,6 +33,19 @@ def main() -> None:
     w = sub.add_parser("wiki", help="结构层：无参数=查看摘要树；带问题=看目录路由命中")
     w.add_argument("question", nargs="?", default=None)
     w.add_argument("-k", type=int, default=3)
+    gb = sub.add_parser("graph-build", help="阶段3：LightRAG 增量建图（--full 全量重建；--scope 只建某子树）")
+    gb.add_argument("--full", action="store_true")
+    gb.add_argument("--scope", default=None, help="相对路径前缀，如 kb-rag/")
+    gq = sub.add_parser("graph", help="阶段3：图检索问答（跨项目多跳）")
+    gq.add_argument("question")
+    gq.add_argument("--mode", choices=["mix", "local", "global", "hybrid", "naive"], default="mix")
+    gv = sub.add_parser("graph-viz", help="阶段3：知识图谱导出 pyvis 交互 HTML")
+    gv.add_argument("--out", default=None)
+    ag = sub.add_parser("agent", help="阶段4：Agentic 检索——LLM 自主调度五层工具回答")
+    ag.add_argument("question")
+    ag.add_argument("--max-steps", type=int, default=6)
+    ev = sub.add_parser("evals", help="阶段5：跑评测集，五层检索匹配率对比（--skip-graph 跳过图层）")
+    ev.add_argument("--skip-graph", action="store_true")
     args = parser.parse_args()
 
     if args.cmd == "ask":
@@ -73,6 +86,38 @@ def main() -> None:
         build_bm25_index()
         build_chroma()
         print(f"增量入库完成: +{r['added']} 块 / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
+        return
+    if args.cmd == "graph-build":
+        from .graph import build_graph
+
+        r = build_graph(full=args.full, scope=args.scope)
+        print(f"建图完成: +{r['added']} / -{r['removed']} 文件 / 图谱语料 {r['total']} 文件 / {r['seconds']:.1f}s")
+        return
+    if args.cmd == "graph":
+        from .graph import query_graph
+
+        print(query_graph(args.question, args.mode))
+        return
+    if args.cmd == "graph-viz":
+        from .graph import export_viz
+
+        print(f"图谱可视化: {export_viz(args.out)}")
+        return
+    if args.cmd == "agent":
+        from .agent import agent
+
+        answer, trace = agent(args.question, args.max_steps)
+        if trace:
+            print("== 工具轨迹 ==")
+            for i, t in enumerate(trace, 1):
+                print(f"[{i}] {t}")
+            print()
+        print(answer)
+        return
+    if args.cmd == "evals":
+        from .evals import run_evals
+
+        run_evals(skip_graph=args.skip_graph)
         return
     if args.cmd == "ingest":
         from .ingest import ingest_file
