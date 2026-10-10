@@ -13,7 +13,7 @@
 | 1.5 | 问答生成层：hybrid 检索 → GLM-5.3-flash 生成带 [n] 引用的回答（OpenAI 兼容接口，供应商可换） | RAG 闭环 | ✅ |
 | 2 | Wiki 化层：目录层级摘要树（PageIndex/RAPTOR 思路），状态类问题先走目录、状态页整文件进上下文 | "项目状态"类问题命中结构页而非归档；STATUS 长文切块召回不全 | ✅ 当前 |
 | 3 | mini-GraphRAG：LLM 抽实体关系 → networkx → 多跳检索 → pyvis 可视化，对比 LightRAG | 跨项目多跳问题 | 待做 |
-| 4 | Agentic RAG：各层检索做成 tools，LLM 自主调度 | 检索策略自适应 | 待做 |
+| 4 | Agentic RAG：各层检索做成 tools，LLM 自主调度 | 检索策略自适应；**融合目标：作为知识插件接入公司智能体框架（DeepSeek Harness）** | 待做 |
 | 5 | evals：自建单跳/多跳评测集，五层检索匹配率对比 | 可量化地证明每层的价值 | 待做 |
 
 ## 阶段 0 的设计决策（第一性原理）
