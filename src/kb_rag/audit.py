@@ -79,14 +79,14 @@ def stats() -> dict:
 def format_records(records: list[dict]) -> str:
     """人类可读视图：时间 调用者 类别 结果 对象（工具或路径）。
 
-    verdict 只对写有意义（读记录无 ok 字段=已发生的读取，不算拒绝）。
+    ok=False（写拒绝 / 读拒绝 / 工具异常）一律显示拒绝与原因；其余显示 ok。
     """
     if not records:
         return "（无审计记录）"
     lines = []
     for r in records:
         what = r.get("rel_path") or f"{r.get('tool', '?')}({r.get('arg', '')})"
-        if r.get("kind") == "write" and r.get("ok") is False:
+        if r.get("ok") is False:
             verdict = f"拒绝: {r.get('error', '?')}"
         else:
             verdict = "ok"

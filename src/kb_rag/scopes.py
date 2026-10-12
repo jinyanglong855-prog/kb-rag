@@ -19,7 +19,8 @@
 - 规则表文件不存在 → 单机零配置，default 全开（保持单用户现状零成本）
 - 规则表存在但 JSON 坏/顶层非法 → **deny-all** + stderr 告警——表坏了不许
   静默变成全放开
-- 已登记 caller 的范围键是空列表 → 明确无权限（deny）；键缺失 → 继承 default
+- 已登记 caller 的范围键是空列表 → 明确无权限（deny）；键缺失 → **deny**
+  （fail-closed：只配 write 的角色不会静默继承 default 的全量读；要给读就显式写）
 - 表存在但 caller 未登记且无 default 键 → deny（不猜）
 
 设计取向：未登记 caller 全放开（单人现状零成本），要收紧时在 callers 里
@@ -84,14 +85,17 @@ def resolve(caller: str, kind: str = READ) -> set[str]:
         return _deny_all()
     if not table:  # 无规则表：单机零配置，全开
         return {"*"}
-    entry = table.get("callers", {}).get(caller)
+    entry = table.get("callers", {})
+    if not isinstance(entry, dict):
+        return _deny_all()  # callers 结构非法（如写成列表）：不猜，拒绝
+    entry = entry.get(caller)
     if entry is None:
         entry = table.get("default")
     if not isinstance(entry, dict):
         return _deny_all()  # 表存在但 caller 未登记且无 default：不猜，拒绝
-    scope_list = entry.get(kind, table.get("default", {}).get(kind))
-    if scope_list is None:
-        return _deny_all()
+    scope_list = entry.get(kind)
+    if not isinstance(scope_list, list) or not all(isinstance(s, str) for s in scope_list):
+        return _deny_all()  # kind 键缺失或非法（如写成字符串）：fail-closed 拒绝
     allowed = set(scope_list) or {"__none__"}  # 显式空列表 = 明确无权限
     if kind == WRITE:  # 写全局上限：环境变量存在时取交集
         cap = _parse(os.environ.get("KB_WRITE_SCOPE"))
@@ -109,7 +113,7 @@ def in_scope(rel_path: str, allowed: set[str]) -> bool:
 
 
 def effective(default: str = "local") -> str:
-    """本进程生效身份：KB_CALLER 环境变量；server 传 default="dsh"，CLI 用 "local"。"""
+    """本进程生效身份：KB_CALLER 环境变量；server 与 CLI 均缺省 "local"。"""
     return os.environ.get("KB_CALLER", "").strip() or default
 
 
