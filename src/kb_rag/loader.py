@@ -45,6 +45,8 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
     """
     out: list[tuple[Path, str]] = []
     for p in sorted(root.rglob("*")):
+        if p.is_symlink():
+            continue  # symlink 不进语料：FS 级投毒可借他人合法写入把越权内容灌进索引
         if not p.is_file():
             continue
         suffix = p.suffix.lower()
@@ -79,7 +81,17 @@ def chunk_file(text: str, path: str, is_markdown: bool) -> list[Chunk]:
 
 
 def chunk_markdown(text: str, path: str) -> list[Chunk]:
-    """按二级标题切块；单块超限再按段落二次切。"""
+    """按二级标题切块；单块超限再按段落二次切。
+
+    frontmatter 块（首个 "---" 块）不单独成块——它是元数据不是正文，
+    纯 frontmatter 块进索引只会污染检索结果（实测 query top5 曾被其占据 3 席）；
+    其内容并入后续首块由嵌入层自然弱化。
+    """
+    lines = text.splitlines()
+    if text.startswith("---"):
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+        if end is not None:
+            lines = lines[end + 1:]
     chunks: list[Chunk] = []
     heading = ""
     buf: list[str] = []
@@ -92,7 +104,7 @@ def chunk_markdown(text: str, path: str) -> list[Chunk]:
             chunks.extend(_split_long(body, path, heading))
         buf.clear()
 
-    for line in text.splitlines():
+    for line in lines:
         if line.startswith("## "):
             flush()
             heading = line[3:].strip()

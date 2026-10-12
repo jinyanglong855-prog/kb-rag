@@ -5,19 +5,25 @@
 
 设计取舍：
 - 转换目标是"内容可检索"且结构保真（表格转 md 表、标题转 md 标题），不追求像素级版式复原。
-- 输出默认进 Shared/参考资料/入库文件/，带来源 frontmatter；转换后自动跑增量索引。
+- 输出默认进 Shared/参考资料/入库文件/；落盘走 write_entry 唯一入口
+  （frontmatter 合规 + 越界目标拒绝 + 审计）——审查发现 P1：此前 ingest 直接
+  write_text，绕过写路径校验且 --to 可越库。
+- 转换后自动跑增量索引。
 """
 
 from datetime import date
 from pathlib import Path
 
-from .config import KB_PATH, validate_kb_path
+from .config import validate_kb_path
+from .writer import safe_rel
 
 DEFAULT_TARGET = "Shared/参考资料/入库文件"
 SOURCE_NOTE = """---
 type: ingested
 source: {source}
-ingested: {today}
+updated: {today}
+status: active
+lifecycle: active
 ---
 
 """
@@ -51,8 +57,8 @@ def _to_markdown(path: Path) -> str:
     return md
 
 
-def ingest_file(source: str, target_dir: str | None = None) -> Path:
-    """转换单个文件 → md 落入总库，返回输出路径。不自动建索引（由 CLI 决定）。"""
+def ingest_file(source: str, target_dir: str | None = None) -> str:
+    """转换单个文件 → md 经写路径唯一入口落库，返回库内相对路径。不自动建索引（由 CLI 决定）。"""
     src = Path(source).expanduser().resolve()
     if not src.is_file():
         raise SystemExit(f"文件不存在: {src}")
@@ -62,15 +68,21 @@ def ingest_file(source: str, target_dir: str | None = None) -> Path:
         )
     validate_kb_path()
 
+    rel_dir = safe_rel(target_dir or DEFAULT_TARGET)
+    if rel_dir is None:
+        raise SystemExit(f"目标目录不合规（须为库内相对路径，不允许 '..' 等）: {target_dir}")
+
     if src.suffix.lower() in PLAIN_EXTS:
         body = src.read_text(encoding="utf-8", errors="ignore")
     else:
         body = _to_markdown(src)
-    out_dir = KB_PATH / (target_dir or DEFAULT_TARGET)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{src.stem}.md"
+    rel_path = f"{rel_dir}/{src.stem}.md"
     front = SOURCE_NOTE.format(source=src.as_posix(), today=date.today().isoformat())
-    if body.lstrip().startswith("---"):  # 已有 frontmatter 则不再包一层
+    if body.lstrip().startswith("---"):  # 已有合规 frontmatter 则不再包一层
         front = ""
-    out.write_text(front + body + "\n", encoding="utf-8")
-    return out
+    from .writer import write_entry
+
+    r = write_entry(front + body + "\n", rel_path, caller="local")
+    if not r["ok"]:
+        raise SystemExit(f"入库被拒: {r.get('error')}")
+    return rel_path

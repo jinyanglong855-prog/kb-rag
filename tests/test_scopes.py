@@ -1,4 +1,4 @@
-"""scopes 权限解析单元测试：resolve / in_scope / effective / KB_WRITE_SCOPE 交集。"""
+"""scopes 权限解析单元测试：resolve / in_scope / effective / KB_WRITE_SCOPE 交集 / fail-closed。"""
 
 import json
 
@@ -12,13 +12,18 @@ RULES = {
 }
 
 
+def _write_rules(tmp_path, monkeypatch, table):
+    p = tmp_path / "scopes.json"
+    p.write_text(table if isinstance(table, str) else json.dumps(table, ensure_ascii=False),
+                 encoding="utf-8")
+    monkeypatch.setenv("KB_SCOPES", str(p))
+    scopes._load.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def _rules_file(tmp_path, monkeypatch):
-    p = tmp_path / "scopes.json"
-    p.write_text(json.dumps(RULES, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setenv("KB_SCOPES", str(p))
+    _write_rules(tmp_path, monkeypatch, RULES)
     monkeypatch.delenv("KB_WRITE_SCOPE", raising=False)
-    scopes._load.cache_clear()
     yield
     scopes._load.cache_clear()
 
@@ -31,6 +36,48 @@ def test_unknown_caller_falls_to_default():
 def test_registered_caller_is_scoped():
     assert scopes.resolve("finance", scopes.READ) == {"公司智能体"}
     assert scopes.resolve("finance", scopes.WRITE) == {"公司智能体"}
+
+
+def test_missing_kind_key_inherits_default(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, {
+        "default": {"read": ["*"], "write": ["*"]},
+        "callers": {"w": {"write": ["公共区"]}},  # 只配写：读继承 default
+    })
+    assert scopes.resolve("w", scopes.READ) == {"*"}
+    assert scopes.resolve("w", scopes.WRITE) == {"公共区"}
+
+
+def test_empty_list_means_explicit_deny(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, {
+        "default": {"read": ["*"], "write": ["*"]},
+        "callers": {"ro": {"read": [], "write": ["公共区"]}},  # 显式空=无权限，不是全开
+    })
+    assert scopes.resolve("ro", scopes.READ) == {"__none__"}
+    assert scopes.resolve("ro", scopes.WRITE) == {"公共区"}
+
+
+def test_bad_json_is_deny_all(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, "{这不是合法 JSON")
+    assert scopes.resolve("nobody", scopes.READ) == {"__none__"}
+    assert scopes.resolve("nobody", scopes.WRITE) == {"__none__"}
+
+
+def test_non_dict_table_is_deny_all(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, ["不是", "对象"])
+    assert scopes.resolve("nobody", scopes.READ) == {"__none__"}
+
+
+def test_table_without_default_denies_unknown_caller(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, {"callers": {"a": {"read": ["x"], "write": ["x"]}}})
+    assert scopes.resolve("nobody", scopes.READ) == {"__none__"}  # 不猜，fail-closed
+    assert scopes.resolve("a", scopes.READ) == {"x"}
+
+
+def test_missing_rules_file_is_open(tmp_path, monkeypatch, ):
+    monkeypatch.setenv("KB_SCOPES", str(tmp_path / "不存在.json"))
+    scopes._load.cache_clear()
+    assert scopes.resolve("nobody", scopes.READ) == {"*"}  # 单机零配置语义
+    scopes._load.cache_clear()
 
 
 def test_write_cap_intersects(monkeypatch):

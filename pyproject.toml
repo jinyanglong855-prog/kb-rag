@@ -5,7 +5,7 @@ description = "本地知识库检索：从朴素 RAG 到 Agentic GraphRAG 的六
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastembed>=0.7",
-    "mcp>=1.9",
+    "mcp>=2",
     "numpy>=2.0",
     "python-dotenv>=1.0",
     "openai>=1.60",

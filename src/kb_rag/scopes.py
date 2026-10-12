@@ -15,12 +15,20 @@
 - KB_WRITE_SCOPE：写全局上限——与规则表范围取交集，任何 caller 都越不过它
   （把某次部署整体锁死的开关；不影响读）
 
+失败语义（对抗性审查后收紧，fail-closed）：
+- 规则表文件不存在 → 单机零配置，default 全开（保持单用户现状零成本）
+- 规则表存在但 JSON 坏/顶层非法 → **deny-all** + stderr 告警——表坏了不许
+  静默变成全放开
+- 已登记 caller 的范围键是空列表 → 明确无权限（deny）；键缺失 → 继承 default
+- 表存在但 caller 未登记且无 default 键 → deny（不猜）
+
 设计取向：未登记 caller 全放开（单人现状零成本），要收紧时在 callers 里
-加角色即可——权限收紧是加条目，不是改代码。
+加条目即可——权限收紧是加条目，不是改代码。
 """
 
 import json
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,6 +36,8 @@ from .config import REPO_ROOT
 
 READ = "read"
 WRITE = "write"
+_INVALID = "__invalid__"  # 规则表损坏哨兵：存在但解析失败 → deny-all
+_warned = False
 
 
 def _scopes_path() -> Path:
@@ -39,11 +49,12 @@ def _scopes_path() -> Path:
 def _load(path: str, mtime: float) -> dict:
     p = Path(path)
     if not p.exists():
-        return {}
+        return {}  # 无规则表 = 单机零配置，default 全开
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        table = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {}  # 规则表坏了不静默放行更安全，但单机场景宁可可用：按空表=default 兜底
+        return {_INVALID: True}
+    return table if isinstance(table, dict) else {_INVALID: True}
 
 
 def _table() -> dict:
@@ -57,11 +68,31 @@ def _parse(raw: str | None) -> set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
+def _deny_all() -> set[str]:
+    global _warned
+    if not _warned:
+        print("kb-rag scopes: 规则表损坏或条目非法，已按 deny-all 处理（修复 scopes.json 后自动恢复）",
+              file=sys.stderr)
+        _warned = True
+    return {"__none__"}
+
+
 def resolve(caller: str, kind: str = READ) -> set[str]:
     """caller → 允许的一级目录集合（或 {"*"}）。kind: scopes.READ / scopes.WRITE。"""
     table = _table()
-    entry = table.get("callers", {}).get(caller) or table.get("default") or {}
-    allowed = set(entry.get(kind) or ["*"])
+    if table.get(_INVALID):
+        return _deny_all()
+    if not table:  # 无规则表：单机零配置，全开
+        return {"*"}
+    entry = table.get("callers", {}).get(caller)
+    if entry is None:
+        entry = table.get("default")
+    if not isinstance(entry, dict):
+        return _deny_all()  # 表存在但 caller 未登记且无 default：不猜，拒绝
+    scope_list = entry.get(kind, table.get("default", {}).get(kind))
+    if scope_list is None:
+        return _deny_all()
+    allowed = set(scope_list) or {"__none__"}  # 显式空列表 = 明确无权限
     if kind == WRITE:  # 写全局上限：环境变量存在时取交集
         cap = _parse(os.environ.get("KB_WRITE_SCOPE"))
         if cap and "*" not in cap:

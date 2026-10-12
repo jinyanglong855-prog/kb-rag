@@ -26,22 +26,25 @@ mcpServers:
 
 调用者身份：env 里给每个 agent 实例配不同 KB_CALLER，即得到不同读/写范围
 （规则表 = 仓库根 scopes.json；个人画像等私有区对受限角色不可检索/不可写）。
-不配 KB_CALLER 时身份为 "dsh"，落规则表 default（当前=全放开）。
+不配 KB_CALLER 时身份为 "local"，落规则表 default（当前=全放开）。
+身份展示（kb_manifest 的 caller 段）与执行共用 scopes.effective()，不会自相矛盾；
+kb_write 不接受调用方自报身份（写侧越权修复）。
 
 首次接入先调 kb_manifest 获取契约（项目清单/别名/写入约定/索引新鲜度），
 再决定用哪个检索工具。KB_PATH 无需 env 传入（config 自行解析仓库 .env）；
-若宿主不继承 HOME 等环境变量导致嵌入模型缓存找不到，再在 env 里显式补齐。
+嵌入模型缓存已钉到仓库 .cache/fastembed（__init__.py），不依赖宿主
+TMPDIR/HOME，MCP 冷启动不会再触发模型重下载。
 
 stdio 协议下 stdout 是协议通道，本模块不做任何 print；模块顶部不执行
 检索/IO，import 无副作用，运行时校验集中在 main()。
 """
 
 import json
-import os
 
 # mcp 2.x 将 FastMCP 更名为 MCPServer（mcp.server.fastmcp 已移除），构造/装饰器/run 接口同构
 from mcp.server.mcpserver import MCPServer
 
+from . import scopes
 from .agent import run_tool
 from .ask import ask
 from .config import validate_kb_path
@@ -52,8 +55,12 @@ mcp = MCPServer("kb-rag")
 
 
 def _caller() -> str:
-    """本 MCP 实例的调用者身份：DSH 每个 agent preset 配不同 KB_CALLER 即不同角色。"""
-    return os.environ.get("KB_CALLER", "").strip() or "dsh"
+    """本 MCP 实例的调用者身份：DSH 每个 agent preset 配不同 KB_CALLER 即不同角色。
+
+    与 manifest/CLI 共用 scopes.effective()（缺省 local）——身份的"展示"与
+    "执行"必须是同一个函数，否则契约声明一套边界、实际执行另一套。
+    """
+    return scopes.effective()
 
 
 @mcp.tool()
@@ -99,9 +106,9 @@ def kb_read_file(path: str) -> str:
 
 
 @mcp.tool()
-def kb_write(content: str, rel_path: str, caller: str = "") -> str:
-    """写入知识库唯一入口：frontmatter 必须含 type/updated/status/lifecycle（lifecycle ∈ active/experimental/deprecated/archived/generated），仅收 .md；写入后自动增量入库、立即可检索；拒绝 项目文件/ 目录与越界路径。"""
-    return json.dumps(write_entry(content, rel_path, caller or _caller()), ensure_ascii=False, indent=2)
+def kb_write(content: str, rel_path: str) -> str:
+    """写入知识库唯一入口：frontmatter 必须含 type/updated/status/lifecycle（lifecycle ∈ active/experimental/deprecated/archived/generated），仅收 .md；写入后自动增量入库、立即可检索；拒绝 项目文件/ 目录与越界路径。写身份取自本 MCP 实例的 KB_CALLER（不接受调用方自报）。"""
+    return json.dumps(write_entry(content, rel_path, _caller()), ensure_ascii=False, indent=2)
 
 
 def main() -> None:

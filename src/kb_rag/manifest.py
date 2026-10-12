@@ -17,9 +17,12 @@ from pathlib import Path
 from .aliases import alias_pairs
 from .config import KB_PATH, INDEX_DIR, validate_kb_path
 from .search import staleness
+from .writer import LIFECYCLE_VALUES, REQUIRED_FRONTMATTER
 
-LIFECYCLE_VALUES = ["active", "experimental", "deprecated", "archived", "generated"]
-KNOWLEDGE_FRONTMATTER = ["type", "updated", "status", "lifecycle"]
+# 对外契约字段名沿用 KNOWLEDGE_FRONTMATTER，值与写路径校验同源（writer）——
+# 承诺（manifest）与执行（writer）必须是同一份常量，否则零上下文 agent 凭
+# manifest 写入会被拒（审查发现：双份拷贝会漂移）
+KNOWLEDGE_FRONTMATTER = REQUIRED_FRONTMATTER
 
 
 def _version() -> str:
@@ -110,13 +113,37 @@ def build_manifest() -> dict:
             "query": 'kb-rag query "问题" --mode hybrid --rerank — 纯检索不生成',
             "wiki": 'kb-rag wiki ["问题"] — 结构层摘要树/目录路由',
             "add": "kb-rag add — 增量入库（收口必跑；按文件指纹只重嵌变更，无变化秒级返回）",
-            "ingest": "kb-rag ingest <文件> [--to 库内目录] — PDF/Word/PPT/Excel/HTML/EPUB 转 md 落库并入库",
+            "ingest": "kb-rag ingest <文件> [--to 库内目录] — PDF/Word/PPT/Excel/HTML/EPUB 转 md 落库并增量入库",
             "index": "kb-rag index --wiki — 全量/分区重建（结构大改或规则变更后才需要）",
+            "write": "kb-rag write --path <库内相对路径> [--from 文件] — 写路径唯一入口（frontmatter 强制校验）",
+            "scopes": "kb-rag scopes — 权限规则管理视图（各 caller 实际生效读写范围）",
+            "audit": "kb-rag audit [--stats] — 审计日志消费（谁在何时查/写了什么）",
             "manifest": "kb-rag manifest — 本契约",
+        },
+        "mcp": {
+            "serve": "uv run kb-rag serve（= kb-rag-mcp）— MCP stdio server，stdio 传输",
+            "tool_namespace": "宿主按 mcp__<serverName>__<name> 命名空间化，如 mcp__kb__kb_ask",
+            "tools": ["kb_manifest", "kb_ask", "kb_vector_search", "kb_hybrid_search",
+                      "kb_status_lookup", "kb_graph_query", "kb_read_file", "kb_write"],
+            "identity": "每个 agent 实例在 mcpServers.env 里配不同 KB_CALLER = 不同角色（读写范围见本契约 caller 段）；kb_write 不接受调用方自报身份",
+            "env_notes": "嵌入模型缓存已钉到仓库 .cache/fastembed（不依赖宿主 TMPDIR/HOME）",
+            "server_config": "完整 mcpServers 配置示例见仓库 README「插件契约」节或 src/kb_rag/server.py 模块 docstring",
+        },
+        "write_result": {
+            "ok": "true=已落盘；sync.mode=clean/delta 时立即可检索",
+            "sync_mode": "clean=内容无变化 | delta=增量入库完成 | full=首次自动全量 | error=入库同步失败（文件已落盘但暂不可检索，等下次 add；error 详情见 error 字段）",
         },
         "projects": _projects(root),
         "aliases": {a: p for a, p in alias_pairs()},
+        "aliases_note": "别名→项目目录名；空值=指向总库根（如\"知识库\"\"项目文件总库\"）",
         "caller": _caller_scope(),
+        "env": {
+            "KB_PATH": "知识库根目录（缺省读仓库 .env）",
+            "INDEX_DIR": "索引产物目录（缺省 = 仓库根 index/；接第二个库时必须单独设置，否则索引会混进本仓库 index/）",
+            "KB_CALLER": "调用者身份（scope 判定与审计；缺省 local）",
+            "KB_SCOPES": "权限规则表路径覆盖（缺省 = 仓库根 scopes.json）",
+            "KB_WRITE_SCOPE": "写全局上限（与角色范围取交集；部署级锁死开关）",
+        },
         "conventions": {
             "knowledge_frontmatter": KNOWLEDGE_FRONTMATTER,
             "lifecycle_values": LIFECYCLE_VALUES,
