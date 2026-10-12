@@ -11,10 +11,12 @@
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from openai import OpenAI
 
+from . import scopes
 from .config import INDEX_DIR, KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, validate_kb_path
 from .hybrid import hybrid_query
 from .search import query as vector_query
@@ -74,17 +76,28 @@ def _fmt_hits(hits: list[dict]) -> str:
     ) or "无结果"
 
 
-def _tool_vector_search(question: str, k: int = 5) -> str:
-    return _fmt_hits(vector_query(question, k))
+def _scoped(hits: list[dict], k: int, allowed: set[str] | None) -> list[dict]:
+    """读范围过滤：受限角色超量召回后过滤再截断，避免 top-k 被越权内容挤占。"""
+    if allowed is None or "*" in allowed:
+        return hits
+    return [h for h in hits if scopes.in_scope(h["path"], allowed)][:k]
 
 
-def _tool_hybrid_search(question: str, k: int = 8) -> str:
-    return _fmt_hits(hybrid_query(question, k))
+def _tool_vector_search(question: str, k: int = 5, allowed: set[str] | None = None) -> str:
+    fetch = k * 3 if allowed and "*" not in allowed else k
+    return _fmt_hits(_scoped(vector_query(question, fetch), k, allowed))
 
 
-def _tool_status_lookup(question: str) -> str:
+def _tool_hybrid_search(question: str, k: int = 8, allowed: set[str] | None = None) -> str:
+    fetch = k * 3 if allowed and "*" not in allowed else k
+    return _fmt_hits(_scoped(hybrid_query(question, fetch), k, allowed))
+
+
+def _tool_status_lookup(question: str, allowed: set[str] | None = None) -> str:
     out = []
     for w in wiki_query(question, k=3):
+        if allowed is not None and "*" not in allowed and not scopes.in_scope(w["path"], allowed):
+            continue
         node = f"节点：{w['title']}（{w['path']}）\n摘要：{w['summary']}"
         if w["status_file"]:
             node += f"\n状态页整文件 {w['status_file']}：\n{w['file_text'][:3000]}"
@@ -92,7 +105,9 @@ def _tool_status_lookup(question: str) -> str:
     return "\n\n---\n\n".join(out) or "无命中节点"
 
 
-def _tool_graph_query(question: str, mode: str = "mix") -> str:
+def _tool_graph_query(question: str, mode: str = "mix", allowed: set[str] | None = None) -> str:
+    if allowed is not None and "*" not in allowed:
+        return "图检索暂不支持角色范围过滤（LightRAG 为全库语料），受限角色已拒绝；请改用 vector/hybrid/status 工具。"
     if not (Path(INDEX_DIR) / "lightrag" / "graph_chunk_entity_relation.graphml").exists():
         return "知识图谱未建立（先跑 kb-rag graph-build），请改用其他检索工具"
     from .graph import query_graph
@@ -100,10 +115,12 @@ def _tool_graph_query(question: str, mode: str = "mix") -> str:
     return query_graph(question, mode)
 
 
-def _tool_read_file(path: str) -> str:
+def _tool_read_file(path: str, allowed: set[str] | None = None) -> str:
     p = (KB_PATH / path).resolve()
     if not p.is_file() or not p.is_relative_to(KB_PATH.resolve()):
         return f"文件不存在或越界: {path}"
+    if allowed is not None and "*" not in allowed and not scopes.in_scope(path, allowed):
+        return f"scope 拒绝: {path} 不在调用者读范围内"
     return p.read_text(encoding="utf-8", errors="ignore")[:8000]
 
 
@@ -116,6 +133,20 @@ _DISPATCH = {
 }
 
 
+def _audit_read(caller: str, name: str, kwargs: dict) -> None:
+    """查询审计：既是访问记录，也是后续知识老化"最近被检索"信号的机器事实源。"""
+    try:
+        from .writer import AUDIT_PATH
+
+        AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        record = {"ts": datetime.now().isoformat(timespec="seconds"), "caller": caller,
+                  "kind": "read", "tool": name, "arg": str(next(iter(kwargs.values()), ""))[:200]}
+        with AUDIT_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def tool_specs() -> list[dict]:
     """五层检索工具的 {name, description, parameters} 列表。
 
@@ -125,11 +156,18 @@ def tool_specs() -> list[dict]:
              "parameters": t["function"]["parameters"]} for t in TOOLS_SPEC]
 
 
-def run_tool(name: str, **kwargs) -> str:
-    """按名执行一个检索工具（外部调度器/插件的工具执行入口）。"""
+def run_tool(name: str, caller: str = "local", **kwargs) -> str:
+    """按名执行一个检索工具（外部调度器/插件的工具执行入口）。
+
+    读结果按 caller 的读范围过滤（scopes 规则表）并记查询审计；
+    caller="local"（CLI/本机）默认全范围。
+    """
     if name not in _DISPATCH:
         raise ValueError(f"未知工具: {name}，可用: {sorted(_DISPATCH)}")
-    return _DISPATCH[name](**kwargs)
+    allowed = scopes.resolve(caller, scopes.READ)
+    result = _DISPATCH[name](**kwargs, allowed=allowed)
+    _audit_read(caller, name, kwargs)
+    return result
 
 
 def agent(question: str, max_steps: int = MAX_STEPS) -> str:

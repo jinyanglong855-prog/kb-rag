@@ -1,0 +1,6 @@
+{
+  "default": {"read": ["*"], "write": ["*"]},
+  "callers": {
+    "finance-example": {"read": ["公司智能体"], "write": ["公司智能体"]}
+  }
+}
