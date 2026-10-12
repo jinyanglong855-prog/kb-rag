@@ -18,6 +18,7 @@ import re
 
 from openai import OpenAI
 
+from . import scopes
 from .aliases import resolve_aliases
 from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .hybrid import hybrid_query
@@ -79,7 +80,7 @@ def _alias_sources(question: str, is_status: bool) -> dict[str, tuple[str, str]]
     return out
 
 
-def ask(question: str, k: int = 5) -> str:
+def ask(question: str, k: int = 5, caller: str = "local") -> str:
     if not LLM_API_KEY:
         raise SystemExit("请在 .env 里填 LLM_API_KEY（智谱/DeepSeek 均可，接口兼容 OpenAI SDK）")
 
@@ -95,7 +96,11 @@ def ask(question: str, k: int = 5) -> str:
                       f"已自动增量入库（+{r['added']} 块 / {r['seconds']:.1f}s）后回答。\n\n")
 
     is_status = _is_status_question(question)
+    allowed = scopes.resolve(caller, scopes.READ)
+    restricted = "*" not in allowed
     alias_srcs = _alias_sources(question, is_status)
+    if restricted:  # 读范围过滤：别名命中的状态页同样不许越权
+        alias_srcs = {rel: v for rel, v in alias_srcs.items() if scopes.in_scope(rel, allowed)}
 
     sources: list[tuple[str, str]] = []  # (来源标签, 内容)
     added_rels: set[str] = set()
@@ -106,14 +111,16 @@ def ask(question: str, k: int = 5) -> str:
         for w in wiki_query(question, k=3):
             if w["status_file"]:
                 rel = f"{w['path']}/{w['status_file']}" if w["path"] != "（根目录）" else w["status_file"]
-                if rel in added_rels:
-                    continue  # 别名已带入同一份状态页，不重复
+                if rel in added_rels or (restricted and not scopes.in_scope(rel, allowed)):
+                    continue  # 别名已带入同一份状态页不重复；越权节点不进上下文
                 sources.append((f"{rel}（{w['title']}·状态页整文件）",
                                 f"节点摘要：{w['summary']}\n{w['file_text']}"))
                 added_rels.add(rel)
-    hits = hybrid_query(question, k=k)
+    fetch = k * 3 if restricted else k
+    hits = [h for h in hybrid_query(question, k=fetch)
+            if scopes.in_scope(h["path"], allowed)][:k]
     if not hits and not sources:
-        return notice + "知识库中没有检索到相关内容。"
+        return notice + "知识库中没有检索到相关内容（或内容不在调用者的读范围内）。"
     for h in hits:
         sources.append((f"{h['path']} #{h['heading']}", h["text"][:800]))
 

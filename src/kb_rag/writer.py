@@ -1,16 +1,17 @@
 """写路径 API（Phase 2 插件契约）：校验→scope→落盘→审计→自动增量索引。
 
 外部 agent 只能通过本入口写库，schema 由插件强制，不依赖调用方自觉。
-写入范围（scope）来自环境变量 KB_WRITE_SCOPE：逗号分隔的一级目录名，
-或 "*" 放开全部；未设置/为空时默认 "*"。
+写范围（scope）按调用者身份解析（Phase 3）：scopes.resolve(caller, WRITE)，
+规则表 = 仓库根 scopes.json；KB_WRITE_SCOPE 环境变量降级为全局上限
+（与身份范围取交集）。
 """
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
 from .config import INDEX_DIR, KB_PATH, validate_kb_path
+from .scopes import WRITE, in_scope, resolve
 from .search import sync_incremental
 
 # 生命周期枚举，与总库治理规则一致
@@ -81,17 +82,11 @@ def _validate_content(text: str) -> str | None:
     return None
 
 
-def _check_scope(rel_path: Path, scope: set[str]) -> str | None:
-    """校验写入范围：返回错误消息或 None（通过）。"""
-    if "*" in scope:
+def _check_scope(rel_posix: str, allowed: set[str], caller: str) -> str | None:
+    """校验写入范围：返回错误消息或 None（通过）。rel_posix 为库内相对路径。"""
+    if in_scope(rel_posix, allowed):
         return None
-    parts = rel_path.parts
-    if len(parts) < 2:
-        return f"scope 拒绝: 根目录文件 {rel_path.name} 仅在 KB_WRITE_SCOPE=* 时允许写入"
-    top = parts[0]
-    if top not in scope:
-        return f"scope 拒绝: 一级目录 {top!r} 不在 KB_WRITE_SCOPE 内"
-    return None
+    return f"scope 拒绝: {rel_posix} 不在调用者 {caller!r} 的写范围内（{','.join(sorted(allowed))}）"
 
 
 def _append_audit(record: dict) -> None:
@@ -107,20 +102,20 @@ def _append_audit(record: dict) -> None:
 def write_entry(content: str, rel_path: str, caller: str = "local") -> dict:
     """写路径唯一入口：校验→scope→落盘→审计→自动增量索引。"""
     validate_kb_path()
-    raw_scope = os.environ.get("KB_WRITE_SCOPE", "").strip()
-    scope = {"*"} if not raw_scope else {s.strip() for s in raw_scope.split(",") if s.strip()}
+    allowed = resolve(caller, WRITE)
     bytes_len = len(content.encode("utf-8"))
 
     target = _validate_rel_path(rel_path)
     if isinstance(target, str):
         error = target
     else:
-        # scope 按相对路径的一级段判断，不用 resolve 后的绝对路径（/tmp 等符号链接会改变段）
-        error = _validate_content(content) or _check_scope(Path(rel_path), scope)
+        # scope 按相对路径判断，不用 resolve 后的绝对路径（/tmp 等符号链接会改变段）
+        error = _validate_content(content) or _check_scope(rel_path, allowed, caller)
     if error:
         _append_audit({
             "ts": datetime.now().isoformat(timespec="seconds"),
             "caller": caller,
+            "kind": "write",
             "rel_path": rel_path,
             "ok": False,
             "error": error,
@@ -140,17 +135,17 @@ def write_entry(content: str, rel_path: str, caller: str = "local") -> dict:
         error = str(exc)
 
     result: dict = {"ok": True, "rel_path": rel_path, "bytes": bytes_len, "sync": sync}
-    if error:
-        result["error"] = error
     record: dict = {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "caller": caller,
+        "kind": "write",
         "rel_path": rel_path,
         "ok": True,
         "bytes": bytes_len,
         "sync": sync,
     }
     if error:
+        result["error"] = error
         record["error"] = error
     _append_audit(record)
     return result
