@@ -22,6 +22,9 @@ dependencies = [
 kb-rag = "kb_rag.__main__:main"
 kb-rag-mcp = "kb_rag.server:main"
 
+[dependency-groups]
+dev = ["pytest>=8"]
+
 [build-system]
 requires = ["uv_build>=0.11,<1.0"]
 build-backend = "uv_build"

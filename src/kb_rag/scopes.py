@@ -75,3 +75,26 @@ def in_scope(rel_path: str, allowed: set[str]) -> bool:
         return True
     top = rel_path.split("/", 1)[0]
     return "/" in rel_path and top in allowed
+
+
+def effective(default: str = "local") -> str:
+    """本进程生效身份：KB_CALLER 环境变量；server 传 default="dsh"，CLI 用 "local"。"""
+    return os.environ.get("KB_CALLER", "").strip() or default
+
+
+def describe() -> dict:
+    """管理视图：规则表位置 + 每个 caller 的实际生效范围（含 KB_WRITE_SCOPE 交集效果）。"""
+    table = _table()
+    cap = _parse(os.environ.get("KB_WRITE_SCOPE"))
+    names = ["default", *table.get("callers", {}).keys()]
+    return {
+        "rules_file": str(_scopes_path()),
+        "global_write_cap": sorted(cap) if cap else "*",
+        "callers": {
+            name: {
+                "read": sorted(resolve(name, READ)),
+                "write": sorted(resolve(name, WRITE)),
+            }
+            for name in names
+        },
+    }

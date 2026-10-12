@@ -47,8 +47,8 @@ def _validate_rel_path(rel: str) -> str | Path:
     if Path(rel).is_absolute():
         return f"rel_path 必须是相对路径: {rel}"
     # pathlib 会折叠 "a//b"、"a/./b" 中的空段和 "."，须在原始串上拦截
-    if any(seg == "" for seg in rel.split("/")):
-        return f"rel_path 包含空路径段: {rel}"
+    if any(seg in ("", ".") for seg in rel.split("/")):
+        return f"rel_path 包含空路径段或 '.': {rel}"
     for seg in Path(rel).parts:
         if seg == "..":
             return f"rel_path 不允许包含 '..': {rel}"

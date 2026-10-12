@@ -3,6 +3,7 @@
 流水线定位：召回（向量+BM25 大候选集）→ 融合（RRF+权威性）→ 精排（交叉编码器，top 20 → top k）。
 """
 
+import os
 from functools import lru_cache
 
 from fastembed.rerank.cross_encoder import TextCrossEncoder
@@ -12,7 +13,8 @@ from .config import RERANK_MODEL
 
 @lru_cache(maxsize=1)
 def get_model() -> TextCrossEncoder:
-    return TextCrossEncoder(model_name=RERANK_MODEL)
+    threads = int(os.environ.get("RERANK_THREADS", "1"))  # 与嵌入层同理：单线程保证可复现
+    return TextCrossEncoder(model_name=RERANK_MODEL, threads=threads)
 
 
 def rerank(question: str, hits: list[dict]) -> list[dict]:

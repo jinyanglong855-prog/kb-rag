@@ -1,4 +1,4 @@
-"""CLI: uv run kb-rag index | add | query | ask | wiki | manifest | write | serve"""
+"""CLI: uv run kb-rag index | add | query | ask | wiki | manifest | scopes | audit | write | serve"""
 
 import argparse
 from pathlib import Path
@@ -35,6 +35,13 @@ def main() -> None:
     w.add_argument("question", nargs="?", default=None)
     w.add_argument("-k", type=int, default=3)
     sub.add_parser("manifest", help="机器可读契约：项目清单/别名/写入约定/索引新鲜度（宿主 agent 接入入口）")
+    au = sub.add_parser("audit", help="审计日志消费：谁在何时查/写了什么（权限层配套，--stats 汇总）")
+    au.add_argument("-n", type=int, default=20, help="显示最近 N 条（默认 20）")
+    au.add_argument("--caller", default=None, help="按调用者过滤")
+    au.add_argument("--kind", choices=["read", "write"], default=None, help="按查询/写入过滤")
+    au.add_argument("--stats", action="store_true", help="按 caller×kind 汇总计数")
+    au.add_argument("--json", action="store_true", help="JSON 输出")
+    sc = sub.add_parser("scopes", help="权限规则管理视图：各 caller 实际生效的读写范围")
     w2 = sub.add_parser("write", help="写路径 API：校验→scope→审计→自动增量索引（frontmatter 必须含 type/updated/status/lifecycle）")
     w2.add_argument("--path", dest="rel_path", required=True, help="库内相对路径（仅 .md）")
     w2.add_argument("--from", dest="source", default=None, help="内容来源文件；缺省读 stdin")
@@ -67,6 +74,27 @@ def main() -> None:
         from .manifest import manifest_text
 
         print(manifest_text())
+        return
+    if args.cmd == "audit":
+        import json as _json
+
+        from .audit import format_records, format_stats, tail
+
+        if args.stats:
+            print(format_stats())
+            return
+        records = tail(caller=args.caller, kind=args.kind, limit=args.n)
+        if args.json:
+            print(_json.dumps(records, ensure_ascii=False, indent=2))
+        else:
+            print(format_records(records))
+        return
+    if args.cmd == "scopes":
+        import json as _json
+
+        from .scopes import describe
+
+        print(_json.dumps(describe(), ensure_ascii=False, indent=2))
         return
     if args.cmd == "write":
         import json
