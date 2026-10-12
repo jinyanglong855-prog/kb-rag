@@ -1,6 +1,7 @@
 {
   "default": {"read": ["*"], "write": ["*"]},
   "callers": {
+    "company-agent": {"read": ["*"], "write": ["公司智能体", "Shared"]},
     "finance-example": {"read": ["公司智能体"], "write": ["公司智能体"]}
   }
 }
