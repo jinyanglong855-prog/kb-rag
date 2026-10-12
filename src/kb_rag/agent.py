@@ -106,7 +106,7 @@ def _tool_status_lookup(question: str, allowed: set[str] | None = None) -> str:
 
 def _tool_graph_query(question: str, mode: str = "mix", allowed: set[str] | None = None) -> str:
     if allowed is not None and "*" not in allowed:
-        return "图检索暂不支持角色范围过滤（LightRAG 为全库语料），受限角色已拒绝；请改用 vector/hybrid/status 工具。"
+        raise ReadDenied("图检索暂不支持角色范围过滤（LightRAG 为全库语料），受限角色已拒绝；请改用 vector/hybrid/status 工具。")
     if not (Path(INDEX_DIR) / "lightrag" / "graph_chunk_entity_relation.graphml").exists():
         return "知识图谱未建立（先跑 kb-rag graph-build），请改用其他检索工具"
     from .graph import query_graph
@@ -114,18 +114,24 @@ def _tool_graph_query(question: str, mode: str = "mix", allowed: set[str] | None
     return query_graph(question, mode)
 
 
+class ReadDenied(Exception):
+    """检索工具拒绝（scope / 路径形状 / 受限层）：审计记 ok=False，消息原样返回调用方。"""
+
+
 def _tool_read_file(path: str, allowed: set[str] | None = None) -> str:
     # 判定顺序=防存在性探测：先形状净化、再 scope、最后才看文件是否存在——
     # 越界路径无论存在与否都得到同一条 scope 拒绝；symlink 越出库根按不存在处理。
     # 形状净化与写路径共用同一实现（writer.safe_rel），两侧规则不漂移。
+    # 拒绝走 ReadDenied：run_tool 记 ok=False 审计后把消息原样返回给调用方。
     from .writer import safe_rel
 
     rel = safe_rel(path)
     if rel is None:
-        return f"路径不合规: {path}（须为库内相对路径，不允许 '..' 或 '.' 开头的段）"
+        raise ReadDenied(f"路径不合规: {path}（须为库内相对路径，不允许 '..' 或 '.' 开头的段）")
     if allowed is not None and "*" not in allowed and not scopes.in_scope(rel, allowed):
-        return (f"scope 拒绝: {rel} 不在调用者读范围内"
-                f"（允许的一级目录: {'、'.join(sorted(allowed))}；当前范围可用 kb_manifest 查询）")
+        raise ReadDenied(
+            f"scope 拒绝: {rel} 不在调用者读范围内"
+            f"（允许的一级目录: {'、'.join(sorted(allowed))}；当前范围可用 kb_manifest 查询）")
     p = KB_PATH / rel
     if not p.is_file() or not p.resolve().is_relative_to(KB_PATH.resolve()):
         return f"文件不存在: {rel}"
@@ -161,18 +167,23 @@ def run_tool(name: str, caller: str = "local", **kwargs) -> str:
     """按名执行一个检索工具（外部调度器/插件的工具执行入口）。
 
     读结果按 caller 的读范围过滤（scopes 规则表）并记查询审计；
-    执行异常同样先审计（ok=False）再抛出——不给探测留无痕通道。
+    拒绝（ReadDenied）与异常同样先审计（ok=False）——拒绝消息原样返回给调用方
+    （server/agent 的字符串契约不变），异常继续抛出。不给探测留无痕通道。
     caller="local"（CLI/本机）默认全范围。
     """
+    from .audit import log_read
+
     if name not in _DISPATCH:
         raise ValueError(f"未知工具: {name}，可用: {sorted(_DISPATCH)}")
     allowed = scopes.resolve(caller, scopes.READ)
+    arg = str(next(iter(kwargs.values()), ""))
     try:
         result = _DISPATCH[name](**kwargs, allowed=allowed)
+    except ReadDenied as exc:
+        log_read(caller, name, arg, ok=False, error=str(exc))
+        return str(exc)  # 拒绝消息照常返回：调用方语义不变，审计里可辨拒绝
     except Exception as exc:
-        from .audit import log_read
-
-        log_read(caller, name, str(next(iter(kwargs.values()), "")), ok=False, error=str(exc))
+        log_read(caller, name, arg, ok=False, error=str(exc))
         raise
     _audit_read(caller, name, kwargs)
     return result

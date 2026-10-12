@@ -38,13 +38,31 @@ def test_registered_caller_is_scoped():
     assert scopes.resolve("finance", scopes.WRITE) == {"公司智能体"}
 
 
-def test_missing_kind_key_inherits_default(tmp_path, monkeypatch):
+def test_missing_kind_key_denies(tmp_path, monkeypatch):
+    """缺 kind 键 = fail-closed 拒绝：只配 write 的角色不会静默继承 default 的全量读。"""
     _write_rules(tmp_path, monkeypatch, {
         "default": {"read": ["*"], "write": ["*"]},
-        "callers": {"w": {"write": ["公共区"]}},  # 只配写：读继承 default
+        "callers": {"w": {"write": ["公共区"]}},  # 只配写：读被拒，不给读就显式写
     })
-    assert scopes.resolve("w", scopes.READ) == {"*"}
+    assert scopes.resolve("w", scopes.READ) == {"__none__"}
     assert scopes.resolve("w", scopes.WRITE) == {"公共区"}
+
+
+def test_malformed_callers_section_denies(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, {
+        "default": {"read": ["*"], "write": ["*"]},
+        "callers": ["不是对象"],  # callers 写成列表：整体 deny-all，不猜
+    })
+    assert scopes.resolve("nobody", scopes.READ) == {"__none__"}
+
+
+def test_kind_value_must_be_string_list(tmp_path, monkeypatch):
+    _write_rules(tmp_path, monkeypatch, {
+        "default": {"read": ["*"], "write": ["*"]},
+        "callers": {"bad": {"read": "公司智能体", "write": ["公共区"]}},  # kind 值写成字符串
+    })
+    assert scopes.resolve("bad", scopes.READ) == {"__none__"}  # 不按字符拆集合
+    assert scopes.resolve("bad", scopes.WRITE) == {"公共区"}
 
 
 def test_empty_list_means_explicit_deny(tmp_path, monkeypatch):

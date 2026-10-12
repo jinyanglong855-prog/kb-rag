@@ -1,9 +1,17 @@
-"""agent 检索工具测试：_scoped 过滤纯函数 + read_file 路径净化/scope 前置 + 图拒绝 + 失败审计。"""
+"""agent 检索工具测试：_scoped 过滤纯函数 + read_file 路径净化/scope 前置 + 图拒绝 + 拒绝/失败审计。"""
+
+import json
 
 import pytest
 
-from kb_rag import audit, writer
-from kb_rag.agent import _scoped, _tool_graph_query, _tool_read_file, run_tool
+from kb_rag import audit, scopes, writer
+from kb_rag.agent import (
+    ReadDenied,
+    _scoped,
+    _tool_graph_query,
+    _tool_read_file,
+    run_tool,
+)
 
 
 def _hit(path: str) -> dict:
@@ -40,8 +48,9 @@ def test_truncate_after_filter():
 
 def test_graph_rejects_restricted_caller():
     # 权限矩阵"图拒绝"项的自动化回归（此前只有手动验证）
-    msg = _tool_graph_query("任何问题", allowed={"公司智能体"})
-    assert "拒绝" in msg and "vector/hybrid/status" in msg
+    with pytest.raises(ReadDenied) as ei:
+        _tool_graph_query("任何问题", allowed={"公司智能体"})
+    assert "拒绝" in str(ei.value) and "vector/hybrid/status" in str(ei.value)
 
 
 def test_graph_star_passes_scope_gate():
@@ -51,13 +60,16 @@ def test_graph_star_passes_scope_gate():
 
 
 def test_read_file_traversal_is_shape_rejected():
-    msg = _tool_read_file("公共区/../私有区/x.md", allowed={"*"})
-    assert "路径不合规" in msg  # 原始串上拦，不许借首段伪装越权
+    with pytest.raises(ReadDenied) as ei:
+        _tool_read_file("公共区/../私有区/x.md", allowed={"*"})
+    assert "路径不合规" in str(ei.value)  # 原始串上拦，不许借首段伪装越权
 
 
 def test_read_file_scope_check_comes_before_existence():
     # 越界且不存在的文件 → scope 拒绝（不向受限角色泄漏文件是否存在）
-    msg = _tool_read_file("私有区/根本不存在.md", allowed={"公共区"})
+    with pytest.raises(ReadDenied) as ei:
+        _tool_read_file("私有区/根本不存在.md", allowed={"公共区"})
+    msg = str(ei.value)
     assert msg.startswith("scope 拒绝")
     assert "公共区" in msg  # 拒绝信息列出允许范围，零上下文可自纠
 
@@ -80,3 +92,24 @@ def test_run_tool_failure_is_audited():
         run_tool("vector_search", caller="local", question="触发失败", k=1)
     rows = audit.tail(kind="read", limit=5)
     assert any(r.get("ok") is False and "vector_search" in r.get("tool", "") for r in rows)
+
+
+def test_run_tool_denial_returns_message_and_audits_ok_false(tmp_path, monkeypatch):
+    # scope 拒绝经 run_tool 返回消息（server/agent 字符串契约不变），审计记 ok=False
+    p = tmp_path / "scopes.json"
+    p.write_text(json.dumps({
+        "default": {"read": ["*"], "write": ["*"]},
+        "callers": {"受限": {"read": ["公共区"], "write": []}},
+    }, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("KB_SCOPES", str(p))
+    scopes._load.cache_clear()
+    try:
+        msg = run_tool("read_file", caller="受限", path="私有区/画像.md")
+        assert msg.startswith("scope 拒绝")
+        rows = audit.tail(kind="read", limit=5)
+        hit = [r for r in rows if r.get("tool") == "read_file" and "私有区" in r.get("arg", "")]
+        assert hit and hit[0]["ok"] is False
+        view = audit.format_records([hit[0]])
+        assert "拒绝" in view  # 审计视图能区分拒绝与成功读
+    finally:
+        scopes._load.cache_clear()
