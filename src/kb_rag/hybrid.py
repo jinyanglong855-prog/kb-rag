@@ -5,6 +5,7 @@ RRF 而非加权分数，因为两路分数量纲不可比，排名融合更稳�
 """
 
 import json
+import re
 from pathlib import Path
 
 import bm25s
@@ -13,6 +14,11 @@ import jieba
 from .authority import apply as authority_apply
 from .config import INDEX_DIR
 from .search import query as vector_query
+
+# 纯标点/符号词元（如全角"？"）：进 BM25 会按 IDF 加权，把恰含该标点的
+# 杂乱文档拉到候选前列（实测单字符可把黄金文件顶出 top-20）。查询与索引
+# 共用本函数，改后需 index --bm25 重建。
+_PUNCT_ONLY = re.compile(r"^[\W_]+$", re.UNICODE)
 
 
 def _sanitize_params() -> None:
@@ -24,7 +30,10 @@ def _sanitize_params() -> None:
 
 
 def _tokenize(text: str) -> list[str]:
-    return [t for t in jieba.lcut(text) if t.strip() and not t.isspace()]
+    return [
+        t for t in jieba.lcut(text)
+        if t.strip() and not t.isspace() and not _PUNCT_ONLY.match(t)
+    ]
 
 
 def build_bm25_index() -> int:

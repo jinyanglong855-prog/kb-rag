@@ -81,6 +81,21 @@
 - **评测集外置于语料**：`项目状态/参考资料/eval_set.json`（该区 json 不进检索语料）——评测集进语料会造成问题原文命中自己的自污染。12 题（5 单跳/3 状态/4 多跳），每题黄金路径经 grep 验证确实含答案事实，评测可信度先于规模。
 - **五层对比**：vector@5 / hybrid@8 / hybrid+rerank@5 / status路由 / graph（only_need_context 上下文路径匹配）。无图基线（2026-10-10）：vector 38%、hybrid 88%、rerank 88%、status 路由 100%——状态题结构层 100% vs 块检索最好 88%，阶段 2 的价值第一次有了数字。完整含图对照跑 `uv run kb-rag evals`。
 
+## 插件契约 Phase 1-3（2026-10-11/12，多人/DSH 接入）
+
+架构原则：**契约从宿主 agent 下沉到库与插件**——换一个没有任何全局记忆的 agent，只凭 manifest + 工具描述就能正确完成"查询 + 写入 + 让知识可被检索"，不需要问任何人。
+
+- **Phase 1 契约**：`manifest` 机器可读契约（项目清单解析自根 STATUS 快照、别名解析自别名索引——生成而非手抄）；别名库内消解；ask 索引过期自动增量补齐；Chroma 惰性同步；收口三件套（项目状态页→根 STATUS→`kb-rag add`）。
+- **Phase 2 接入点**：`serve` = MCP stdio server（8 工具，`mcp__kb__*`；DSH mcpServers 配置见 server.py docstring）；`writer.py` 写路径唯一入口（frontmatter 强制校验、路径白名单拒 `项目文件/`、写后自动增量索引、审计日志）；MCP 协议端到端验收通过（写入→自动索引→立即检索命中，越界拒绝）。
+- **Phase 3 权限层**：`scopes.json` 规则表 + `resolve(caller, kind)` 单一事实源——caller→读/写允许的一级目录集合，未登记 caller 落 default（全开；收紧=加条目不改代码）；`KB_WRITE_SCOPE` 降级为全局写上限（与角色范围取交集）；读路径五工具+ask 按 caller 过滤（超量召回 k×3、过滤后截断，配额留给可见内容）；图检索对受限角色明确拒绝（未支持按角色过滤，不静默泄漏）；`serve` 以 `KB_CALLER` 环境变量定身份——一个 DSH agent = 一个 MCP 实例 = 一个角色；查询/写入统一审计 `index/audit.jsonl`。manifest 暴露当前 caller 生效范围（零上下文即知自身边界）；`scopes`/`audit` 命令 = 管理视图与审计消费。
+
+## 检索可复现性打磨（2026-10-12）
+
+- **确定性检索**：嵌入/rerank 固定单线程（fastembed `threads=1`）+ BLAS 单线程（`kb_rag/__init__.py` 在 numpy 首次导入前钉 `OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS=1`）。多线程浮点归约顺序随进程内存状态变化，同一查询跨进程向量有微小差异；93k 块近重复语料把差异放大成排名翻转——边界题命中与否取决于进程启动顺序，评测不可复现。修复后两次全量评测结果逐位一致。
+- **标点不进 BM25 词元**：纯标点 token（如全角"？ "）按 IDF 加权，会把恰含该标点的杂乱文档拉进候选前列（实测单个问号可把黄金文件顶出 top-20）。`_tokenize` 过滤 `^[\W_]+$` 词元；查询与索引共用同一分词器，改后需 `uv run kb-rag index --bm25` 重建。
+- **权威分层反映知识库结构语义**：项目状态页（`项目状态/STATUS.md` ×2.0、`项目状态/README.md` ×1.8）> 决策区 ×1.3 > 一般 ×1.0 > `项目文件/` 原始素材 ×0.5（`kb-rag/项目文件/README.md` 作为权威技术文档特例 ×1.5）。总库的设计语义就是"项目状态区=知识沉淀层、项目文件=原始素材"，知识问题应优先命中沉淀层。每条乘数显式可解释（`authority.py` 规则表）。
+- **93k 块语料评测基线（可复现）**：vector@5 12% / hybrid@8 88% / hybrid+rerank@5 88% / status 路由 100%。融合前 4.8k 块基线（38/88/88）不可直接对比——语料涨 19 倍后干扰源大增；hybrid 层靠权威分层回到 88%。已知难点：status-2"还开着吗"（查询肯定式 vs 答案"已停止"否定语义）。vector@5 是刻意保留的原始对照层（无权威加权）。权限层测试：`uv run pytest tests/`（18 用例，隔离环境 0.4s）。
+
 ## 用法
 
 ```bash
@@ -96,11 +111,16 @@ uv run kb-rag graph-build           # 阶段3：LightRAG 增量建图（--full �
 uv run kb-rag graph "问题"          # 阶段3：图检索多跳问答；graph-viz 导出 pyvis 可视化
 uv run kb-rag agent "问题"          # 阶段4：LLM 自主调度五层检索工具回答（打印工具轨迹）
 uv run kb-rag evals                 # 阶段5：跑评测集输出五层匹配率对比
+uv run kb-rag manifest              # 插件契约：机器可读项目/别名/约定/新鲜度（外部 agent 接入入口）
+uv run kb-rag serve                 # MCP stdio server（DSH 知识插件接入点，KB_CALLER 定角色）
+uv run kb-rag write --path "a/b.md" --from 文件.md   # 写路径唯一入口（frontmatter 校验+scope+审计+自动索引）
+uv run kb-rag scopes                # 权限规则管理视图：各 caller 实际生效读写范围
+uv run kb-rag audit --stats         # 审计日志消费：谁在何时查/写了什么
 ```
 
 ## 设计决策索引
 
 - **722 篇/4793 块不引入向量库也能用**（numpy 暴力余弦毫秒级）；Chroma 是为"语料增长、元数据过滤、增量更新"的边界准备的，`--store`/`--mode` 保留 numpy 路径做对照，两者结果一致（实证见 commit 历史）。
-- **权威性加权是显式规则**（现行状态×1.6、决策×1.3、日志×0.6、归档×0.35），每条乘数可回答"为什么"，不做黑盒重排。
+- **权威性加权是显式规则**（项目状态页 ×1.8–2.0、决策 ×1.3、原始文件区 ×0.5、归档 ×0.35——完整表见 `authority.py`），每条乘数可回答"为什么"，不做黑盒重排。
 - **ask 层强制引用**：关键论断必须标 [n] 且来源可追；资料不足时要求模型明说，不许猜——这来自真实企业交付里"答案看着对、源头找不到"的教训。
 - **状态类问题先走结构层（阶段 2）**：显式意图规则命中后，目录摘要树 top 节点的整份状态文件进上下文——修掉了"STATUS 长文切块后最新卡点不进 top-k、模型答'资料中没有提到'"的忠实但召回不全问题（2026-10-09 实测记录见上）。剩余边界：块索引不自动追源文件变更（知识库大改后需重跑 `index`）；召回率量化归阶段 5 evals。

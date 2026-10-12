@@ -81,6 +81,20 @@ def _index_stats() -> dict:
     return stats
 
 
+def _caller_scope() -> dict:
+    """当前进程身份的生效读写范围——零上下文 agent 读 manifest 即知自身边界。"""
+    from .scopes import READ, WRITE, effective, resolve
+
+    cid = effective("local")
+    return {
+        "id": cid,
+        "id_source": "KB_CALLER 环境变量（缺省 local；DSH 每个角色一个 MCP 实例各设一个）",
+        "read": sorted(resolve(cid, READ)),
+        "write": sorted(resolve(cid, WRITE)),
+        "rules": "scopes.json（仓库根）；范围=一级目录列表，\"*\"=全部；越界读写会被拒绝并记入审计",
+    }
+
+
 def build_manifest() -> dict:
     root = validate_kb_path()
     return {
@@ -102,6 +116,7 @@ def build_manifest() -> dict:
         },
         "projects": _projects(root),
         "aliases": {a: p for a, p in alias_pairs()},
+        "caller": _caller_scope(),
         "conventions": {
             "knowledge_frontmatter": KNOWLEDGE_FRONTMATTER,
             "lifecycle_values": LIFECYCLE_VALUES,
