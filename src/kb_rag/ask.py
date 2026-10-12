@@ -81,23 +81,30 @@ def _alias_sources(question: str, is_status: bool) -> dict[str, tuple[str, str]]
 
 
 def ask(question: str, k: int = 5, caller: str = "local") -> str:
+    from .audit import log_read
+
     if not LLM_API_KEY:
         raise SystemExit("请在 .env 里填 LLM_API_KEY（智谱/DeepSeek 均可，接口兼容 OpenAI SDK）")
 
-    # L2 新鲜度兜底：索引缺失/过期先补齐再回答，保证引用反映库内当前内容
+    allowed = scopes.resolve(caller, scopes.READ)
+    restricted = "*" not in allowed
+    log_read(caller, "ask", {"question": question, "k": k})  # 查询审计：问答是最常用的读通道，不能无痕
+
+    # L2 新鲜度兜底：索引缺失/过期先补齐再回答，保证引用反映库内当前内容。
+    # 受限角色跳过自动补齐——只读角色一次提问不该有能力触发 93k 块全量重嵌（资源型 DoS 面）
     notice = ""
     st = staleness()
-    if st["mode"] != "clean":
+    if st["mode"] != "clean" and not restricted:
         r = sync_incremental()
         if r["mode"] == "full":
             notice = "⚠ 索引缺失，已自动全量构建后回答。\n\n"
         elif r["mode"] == "delta":
             notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
                       f"已自动增量入库（+{r['added']} 块 / {r['seconds']:.1f}s）后回答。\n\n")
+    elif st["mode"] != "clean":
+        notice = "⚠ 索引可能过期（受限角色不触发自动重建，请联系管理员跑 kb-rag add）。\n\n"
 
     is_status = _is_status_question(question)
-    allowed = scopes.resolve(caller, scopes.READ)
-    restricted = "*" not in allowed
     alias_srcs = _alias_sources(question, is_status)
     if restricted:  # 读范围过滤：别名命中的状态页同样不许越权
         alias_srcs = {rel: v for rel, v in alias_srcs.items() if scopes.in_scope(rel, allowed)}

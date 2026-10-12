@@ -6,6 +6,7 @@ RRF 而非加权分数，因为两路分数量纲不可比，排名融合更稳�
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import bm25s
@@ -45,7 +46,9 @@ def build_bm25_index() -> int:
     _sanitize_params()  # bm25s 0.3.11: save 写入的 corpora 键 load 时不被 __init__ 接受
     (Path(INDEX_DIR) / "bm25_meta.json").write_text(
         json.dumps({"count": len(chunks)}, ensure_ascii=False), encoding="utf-8")
-    print(f"BM25 索引完成: {len(chunks)} 块")
+    # stderr 而非 stdout：MCP stdio 协议下 stdout 是协议通道，进度输出混入
+    # 会产生 "Invalid JSON" 帧污染（审查发现 P1）；CLI 侧 stderr 同样可见
+    print(f"BM25 索引完成: {len(chunks)} 块", file=sys.stderr)
     return len(chunks)
 
 

@@ -38,28 +38,39 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return meta
 
 
+def safe_rel(rel: str) -> str | None:
+    """路径形状净化（读/写/入库转换共用的事实源）：拒绝非字符串、空、绝对路径、
+    空段/"." 段/".."、以 "." 开头的段；返回规范 posix 相对路径，不合规返回 None。
+
+    必须在原始串上判断——pathlib 会折叠 "a//b"、"a/./b"、"a/../b"，
+    折叠后 ".." 穿越与首段伪装（"pub/../sec"）都看不出来了。
+    """
+    if not isinstance(rel, str) or not rel or Path(rel).is_absolute():
+        return None
+    parts = rel.split("/")
+    if any(seg in ("", ".", "..") or seg.startswith(".") for seg in parts):
+        return None
+    return "/".join(parts)
+
+
 def _validate_rel_path(rel: str) -> str | Path:
-    """校验相对路径：返回错误消息（拒绝）或规范化后的目标 Path。"""
+    """写路径校验：返回错误消息（拒绝）或规范化后的目标 Path。"""
     if not isinstance(rel, str):
         return "rel_path 必须是字符串"
-    if not rel:
-        return "rel_path 不能为空"
-    if Path(rel).is_absolute():
-        return f"rel_path 必须是相对路径: {rel}"
-    # pathlib 会折叠 "a//b"、"a/./b" 中的空段和 "."，须在原始串上拦截
-    if any(seg in ("", ".") for seg in rel.split("/")):
-        return f"rel_path 包含空路径段或 '.': {rel}"
-    for seg in Path(rel).parts:
-        if seg == "..":
-            return f"rel_path 不允许包含 '..': {rel}"
-        if seg.startswith("."):
-            return f"rel_path 不允许以 '.' 开头的路径段: {rel}"
+    norm = safe_rel(rel)
+    if norm is None:
+        if not rel:
+            return "rel_path 不能为空"
+        if Path(rel).is_absolute():
+            return f"rel_path 必须是相对路径: {rel}"
+        return f"rel_path 包含空路径段、'.'、'..' 或以 '.' 开头的段: {rel}"
+    for seg in norm.split("/"):
         if seg in FORBIDDEN_SEGMENTS:
             return f"rel_path 不允许包含保留目录名 {seg!r}: {rel}"
-    if not rel.endswith(".md"):
+    if not norm.endswith(".md"):
         return f"本阶段只接受 .md 文件: {rel}"
     root = KB_PATH.resolve()
-    target = (root / rel).resolve()
+    target = (root / norm).resolve()
     # resolve 后仍在总库之下，防符号链接与路径穿越
     if not target.is_relative_to(root):
         return f"rel_path 越出知识库根目录: {rel}"
@@ -123,8 +134,21 @@ def write_entry(content: str, rel_path: str, caller: str = "local") -> dict:
         })
         return {"ok": False, "error": error}
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        # 落盘失败同样必须留审计——失败是调查最关心的时刻，不留无痕通道
+        _append_audit({
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "caller": caller,
+            "kind": "write",
+            "rel_path": rel_path,
+            "ok": False,
+            "error": f"落盘失败: {exc}",
+            "bytes": bytes_len,
+        })
+        return {"ok": False, "error": f"落盘失败: {exc}"}
 
     # 同步失败不吞掉写结果：ok 保持 True，异常文本放进 error
     sync: dict = {}

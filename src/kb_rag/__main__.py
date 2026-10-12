@@ -45,7 +45,7 @@ def main() -> None:
     w2 = sub.add_parser("write", help="写路径 API：校验→scope→审计→自动增量索引（frontmatter 必须含 type/updated/status/lifecycle）")
     w2.add_argument("--path", dest="rel_path", required=True, help="库内相对路径（仅 .md）")
     w2.add_argument("--from", dest="source", default=None, help="内容来源文件；缺省读 stdin")
-    w2.add_argument("--caller", default="cli", help="调用者标识（进审计日志）")
+    w2.add_argument("--caller", default=None, help="调用者标识（缺省取 KB_CALLER 环境变量，再缺省 local；进审计与 scope 判定）")
     sub.add_parser("serve", help="启动 MCP stdio server（DSH 知识插件接入点；等价 kb-rag-mcp）")
     gb = sub.add_parser("graph-build", help="阶段3：LightRAG 增量建图（--full 全量重建；--scope 只建某子树）")
     gb.add_argument("--full", action="store_true")
@@ -68,7 +68,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.cmd == "ask":
-        print(ask(args.question, args.k))
+        from . import scopes
+
+        print(ask(args.question, args.k, caller=scopes.effective()))
         return
     if args.cmd == "manifest":
         from .manifest import manifest_text
@@ -100,13 +102,17 @@ def main() -> None:
         import json
         import sys
 
+        from . import scopes
         from .writer import write_entry
 
         if args.source:
             content = Path(args.source).read_text(encoding="utf-8")
         else:
             content = sys.stdin.read()
-        print(json.dumps(write_entry(content, args.rel_path, args.caller), ensure_ascii=False, indent=2))
+        r = write_entry(content, args.rel_path, args.caller or scopes.effective())
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        if not r["ok"]:
+            sys.exit(1)  # 脚本化调用看退出码，不能把失败当成功
         return
     if args.cmd == "serve":
         from .server import main as serve_main
@@ -212,14 +218,22 @@ def main() -> None:
                 print("增量入库：语料无变化")
         return
     else:
+        from . import scopes
+        from .agent import _scoped
+        from .audit import log_read
+
+        caller = scopes.effective()
+        allowed = scopes.resolve(caller, scopes.READ)
+        log_read(caller, f"query:{args.mode}", args.question)
+        fetch = args.k * 3 if "*" not in allowed else args.k  # 受限先超量召回，过滤后仍有 k 条配额
         if args.mode == "hybrid":
-            hits = hybrid_query(args.question, args.k)
+            hits = _scoped(hybrid_query(args.question, fetch), args.k, allowed)
         elif args.mode == "chroma":
-            hits = chroma_query(args.question, args.k)
+            hits = _scoped(chroma_query(args.question, fetch), args.k, allowed)
         else:
-            hits = query(args.question, args.k)
+            hits = _scoped(query(args.question, fetch), args.k, allowed)
         if args.rerank:
-            hits = rerank(args.question, hits)
+            hits = rerank(args.question, hits)[:args.k]
         label = {"vector": "vector(numpy)", "hybrid": "hybrid(BM25+向量 RRF)", "chroma": "chroma"}[args.mode]
         if args.rerank:
             label += " + rerank"

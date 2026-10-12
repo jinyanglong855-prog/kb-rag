@@ -7,6 +7,7 @@
 
 import hashlib
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -65,7 +66,8 @@ def build_index() -> int:
             chunks.append({"path": c.path, "heading": c.heading, "text": c.text})
     vectors = _embed_normalized([c["text"] for c in chunks])
     _save(chunks, vectors, _scan_hashes(root))
-    print(f"全量索引完成: {len(chunks)} 块 / {vectors.shape[1]} 维 / {time.time() - t0:.1f}s")
+    print(f"全量索引完成: {len(chunks)} 块 / {vectors.shape[1]} 维 / {time.time() - t0:.1f}s",
+          file=sys.stderr)  # stderr：MCP stdio 下 stdout 是协议通道
     return len(chunks)
 
 
@@ -78,8 +80,10 @@ def incremental_index() -> dict:
         build_index()
         from .hybrid import build_bm25_index
         from .store import build_chroma
+        from .wikitree import build_wiki
         build_bm25_index()
         build_chroma()
+        build_wiki()  # ask 的结构层硬依赖 wikitree.json——首次自动全量必须补齐（审查发现 P1）
         return {"mode": "full", "added": 0, "removed": 0, "total": None, "seconds": time.time() - t0}
 
     chunks = json.loads((Path(INDEX_DIR) / "chunks.json").read_text(encoding="utf-8"))

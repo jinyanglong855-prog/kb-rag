@@ -11,7 +11,6 @@
 """
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 from openai import OpenAI
@@ -116,11 +115,20 @@ def _tool_graph_query(question: str, mode: str = "mix", allowed: set[str] | None
 
 
 def _tool_read_file(path: str, allowed: set[str] | None = None) -> str:
-    p = (KB_PATH / path).resolve()
-    if not p.is_file() or not p.is_relative_to(KB_PATH.resolve()):
-        return f"文件不存在或越界: {path}"
-    if allowed is not None and "*" not in allowed and not scopes.in_scope(path, allowed):
-        return f"scope 拒绝: {path} 不在调用者读范围内"
+    # 判定顺序=防存在性探测：先形状净化、再 scope、最后才看文件是否存在——
+    # 越界路径无论存在与否都得到同一条 scope 拒绝；symlink 越出库根按不存在处理。
+    # 形状净化与写路径共用同一实现（writer.safe_rel），两侧规则不漂移。
+    from .writer import safe_rel
+
+    rel = safe_rel(path)
+    if rel is None:
+        return f"路径不合规: {path}（须为库内相对路径，不允许 '..' 或 '.' 开头的段）"
+    if allowed is not None and "*" not in allowed and not scopes.in_scope(rel, allowed):
+        return (f"scope 拒绝: {rel} 不在调用者读范围内"
+                f"（允许的一级目录: {'、'.join(sorted(allowed))}；当前范围可用 kb_manifest 查询）")
+    p = KB_PATH / rel
+    if not p.is_file() or not p.resolve().is_relative_to(KB_PATH.resolve()):
+        return f"文件不存在: {rel}"
     return p.read_text(encoding="utf-8", errors="ignore")[:8000]
 
 
@@ -134,17 +142,10 @@ _DISPATCH = {
 
 
 def _audit_read(caller: str, name: str, kwargs: dict) -> None:
-    """查询审计：既是访问记录，也是后续知识老化"最近被检索"信号的机器事实源。"""
-    try:
-        from .writer import AUDIT_PATH
+    """查询审计（转审计模块统一入口，含失败调用）。"""
+    from .audit import log_read
 
-        AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        record = {"ts": datetime.now().isoformat(timespec="seconds"), "caller": caller,
-                  "kind": "read", "tool": name, "arg": str(next(iter(kwargs.values()), ""))[:200]}
-        with AUDIT_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    log_read(caller, name, str(next(iter(kwargs.values()), "")))
 
 
 def tool_specs() -> list[dict]:
@@ -160,12 +161,19 @@ def run_tool(name: str, caller: str = "local", **kwargs) -> str:
     """按名执行一个检索工具（外部调度器/插件的工具执行入口）。
 
     读结果按 caller 的读范围过滤（scopes 规则表）并记查询审计；
+    执行异常同样先审计（ok=False）再抛出——不给探测留无痕通道。
     caller="local"（CLI/本机）默认全范围。
     """
     if name not in _DISPATCH:
         raise ValueError(f"未知工具: {name}，可用: {sorted(_DISPATCH)}")
     allowed = scopes.resolve(caller, scopes.READ)
-    result = _DISPATCH[name](**kwargs, allowed=allowed)
+    try:
+        result = _DISPATCH[name](**kwargs, allowed=allowed)
+    except Exception as exc:
+        from .audit import log_read
+
+        log_read(caller, name, str(next(iter(kwargs.values()), "")), ok=False, error=str(exc))
+        raise
     _audit_read(caller, name, kwargs)
     return result
 
@@ -194,6 +202,8 @@ def agent(question: str, max_steps: int = MAX_STEPS) -> str:
             name = tc.function.name
             args = json.loads(tc.function.arguments or "{}")
             trace.append(f"{name}({args})")
-            result = _DISPATCH[name](**args)
+            # 走 run_tool 而非直连 _DISPATCH：scope 过滤与审计必须在唯一入口里，
+            # 任何旁路都是未来的越权漏洞（审查发现 P1）
+            result = run_tool(name, caller=scopes.effective(), **args)
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result[:6000]})
     return "达到最大工具调用轮数仍未收敛，以上为最后尝试。", trace

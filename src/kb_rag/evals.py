@@ -116,5 +116,8 @@ def run_evals(skip_graph: bool = False) -> list[dict]:
     }
     out = KB_PATH / EVAL_SET.replace("eval_set.json", "evals_report.json")
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"报告: {out}")
+    # 带日期留档：可复现性声称要能事后复核，覆盖写只剩最后一份无法追溯
+    dated = KB_PATH / EVAL_SET.replace("eval_set.json", f"evals_report_{date.today().isoformat()}.json")
+    dated.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"报告: {out}（留档: {dated.name}）")
     return rows

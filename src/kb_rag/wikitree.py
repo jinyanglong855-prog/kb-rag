@@ -212,16 +212,24 @@ def build_wiki(use_llm: bool = True) -> int:
     return len(nodes)
 
 
-def _load() -> tuple[list[WikiNode], np.ndarray]:
-    data = json.loads((Path(INDEX_DIR) / TREE_JSON).read_text(encoding="utf-8"))
+def _load() -> tuple[list[WikiNode], "np.ndarray"]:
+    """读摘要树；缺文件/向量时返回空树（wiki_query 自然无命中）而非裸崩——
+    add 自动全量路径之外的残缺索引不该让 ask 直接 FileNotFoundError。"""
+    tree_path = Path(INDEX_DIR) / TREE_JSON
+    vec_path = Path(INDEX_DIR) / TREE_VECTORS
+    if not tree_path.exists() or not vec_path.exists():
+        return [], np.zeros((0, 1), dtype=np.float32)
+    data = json.loads(tree_path.read_text(encoding="utf-8"))
     nodes = [WikiNode(**n) for n in data["nodes"]]
-    return nodes, np.load(Path(INDEX_DIR) / TREE_VECTORS)
+    return nodes, np.load(vec_path)
 
 
 def wiki_query(question: str, k: int = 3) -> list[dict]:
     """问题→目录节点：节点摘要余弦检索；命中后现读整份状态文件作上下文。"""
     root = validate_kb_path()
     nodes, vectors = _load()
+    if not nodes:
+        return []  # 摘要树缺失（残缺索引）：结构层让路，不阻塞块检索路径
     q = np.array(embed([question])[0], dtype=np.float32)
     q /= max(np.linalg.norm(q), 1e-10)
     scores = vectors @ q
