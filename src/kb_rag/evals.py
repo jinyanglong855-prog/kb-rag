@@ -29,7 +29,9 @@ def _load_cases() -> list[dict]:
 
 
 def _path_hit(expected: list[str], paths: list[str]) -> bool:
-    return any(any(e in p for p in paths) for e in expected)
+    # LightRAG 上下文里的 file-path 用全角斜杠（防 markdown 转义），匹配前归一到半角
+    norm = lambda s: s.replace("／", "/")
+    return any(any(norm(e) in norm(p) for p in paths) for e in expected)
 
 
 def _graph_context(question: str, mode: str = "mix") -> str:
