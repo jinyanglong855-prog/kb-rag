@@ -62,8 +62,12 @@ def _load_chunks() -> list[dict]:
     return json.loads((Path(INDEX_DIR) / "chunks.json").read_text(encoding="utf-8"))
 
 
-def hybrid_query(question: str, k: int = 5, vector_candidates: int = 20) -> list[dict]:
-    """RRF: score = Σ 1/(60 + rank)。两路各取候选，按融合分排序。"""
+def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list[dict]:
+    """RRF: score = Σ 1/(60 + rank)。两路各取候选，按融合分排序。
+
+    候选池 50（2026-10-16 实测）：20 池漏 2 个评测用例的金标（35/50 池才进池）；
+    加深池只加宽召回，精排仍只对返回的 k 条算分，查询成本不变。
+    """
     chunks = _load_chunks()
     # 候选数不超过语料规模（bm25s 对 k > corpus 抛错；tiny 语料/单测场景触发）
     vector_candidates = min(vector_candidates, len(chunks))
