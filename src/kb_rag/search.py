@@ -51,10 +51,11 @@ def _chunk_files(root: Path, rels: set[str]) -> tuple[list[dict], list[str]]:
     return chunks, [_embed_input(c) for c in chunks]
 
 
-def _embed_normalized(texts: list[str], batch: int = 2048) -> np.ndarray:
-    # 分批嵌入+预分配：embed() 返回的 Python float 列表在 93k×1024 维约 4GB，
-    # 一次性转 numpy 会撑爆 16GB 内存被 jetsam 杀（2026-10-17 实测四连杀）；
-    # 分批后每批仅 ~84MB 瞬时占用，全库峰值 ~1.2GB
+def _embed_normalized(texts: list[str], batch: int = 256) -> np.ndarray:
+    # 外层分批+预分配：避免 embed() 返回的 Python 浮点列表整库滞留（93k×1024 约 4GB）。
+    # 内存大户在 embedder 内部——fastembed 默认批 256 在真实长文本上单次推理
+    # RSS ~7.9GB 被 jetsam 杀（2026-10-17 三连杀真凶，与外层分段大小无关），
+    # 已在 embedder 钉死 batch_size=4；本层批大小只影响 numpy 转换的瞬时占用
     out: np.ndarray | None = None
     for i in range(0, len(texts), batch):
         vecs = np.array(embed(texts[i:i + batch]), dtype=np.float32)
