@@ -34,7 +34,9 @@ def rerank(question: str, hits: list[dict]) -> list[dict]:
     for h, s in zip(hits, scores):
         h["rerank_score"] = round(float(s), 4)
         # 精排只算语义相关，会丢掉混合阶段已加权的权威分层（实测 status-3：
-        # 状态页在池内第 1，纯精排后跌出前 5）。sigmoid 概率 × 权威乘数做
-        # 先验融合，有界可解释；不能直接乘原始 logit（负值会反序）。
+        # 状态页在池内第 1，纯精排后跌出前 5，明细留档 项目状态/参考资料/
+        # rerank_ab_2026-10-17.json）。sigmoid 概率 × 权威乘数做先验融合：
+        # 概率为正数，同乘数组内保序；不直接乘原始 logit，因为 <1 的乘数会
+        # 把负分向 0 压、把想要的惩罚变成奖励。
         h["final_score"] = round(_sigmoid(float(s)) * authority_multiplier(h["path"]), 4)
     return sorted(hits, key=lambda h: -h["final_score"])
