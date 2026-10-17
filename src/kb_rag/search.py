@@ -14,11 +14,21 @@ from pathlib import Path
 import numpy as np
 
 from .authority import apply as authority_apply
-from .config import INDEX_DIR, KB_PATH, validate_kb_path
+from .config import EMBED_MODEL, INDEX_DIR, KB_PATH, validate_kb_path
 from .embedder import embed
 from .loader import chunk_file, load_text_files
 
 META_JSON = "meta.json"
+
+
+def _embed_input(c: dict) -> str:
+    """文档侧嵌入输入 = 路径+标题链+正文；查询侧保持裸问题（两侧不对称是设计）。
+
+    BM25 语料一直含路径标题而向量路没有——拼进嵌入是 Anthropic 上下文检索的
+    零 LLM 降本版，让块自带文档级语境。2026-10-17 起生效，与嵌入模型换代
+    （bge-small-zh → Qwen3-Embedding-0.6B）同一次全量重建，改任一须重建。
+    """
+    return f"{c['path']} {c['heading']}\n{c['text']}"
 
 
 def _file_hash(p: Path) -> str:
@@ -30,7 +40,7 @@ def _scan_hashes(root: Path) -> dict[str, str]:
 
 
 def _chunk_files(root: Path, rels: set[str]) -> tuple[list[dict], list[str]]:
-    """切指定文件集合，返回 (chunk dicts, 对应文本列表)。"""
+    """切指定文件集合，返回 (chunk dicts, 对应嵌入输入列表)。"""
     chunks: list[dict] = []
     for f, rel in load_text_files(root):
         if rel not in rels:
@@ -38,7 +48,7 @@ def _chunk_files(root: Path, rels: set[str]) -> tuple[list[dict], list[str]]:
         text = f.read_text(encoding="utf-8", errors="ignore")
         for c in chunk_file(text, rel, is_markdown=f.suffix.lower() == ".md"):
             chunks.append({"path": c.path, "heading": c.heading, "text": c.text})
-    return chunks, [c["text"] for c in chunks]
+    return chunks, [_embed_input(c) for c in chunks]
 
 
 def _embed_normalized(texts: list[str]) -> np.ndarray:
@@ -52,8 +62,10 @@ def _save(chunks: list[dict], vectors: np.ndarray, hashes: dict[str, str]) -> No
     np.save(INDEX_DIR / "vectors.npy", vectors)
     (INDEX_DIR / "chunks.json").write_text(
         json.dumps(chunks, ensure_ascii=False), encoding="utf-8")
-    (INDEX_DIR / META_JSON).write_text(
-        json.dumps({"hashes": hashes}, ensure_ascii=False), encoding="utf-8")
+    (INDEX_DIR / META_JSON).write_text(json.dumps(
+        {"hashes": hashes,
+         "embed": {"model": EMBED_MODEL, "doc_prefix": "path+heading"}},
+        ensure_ascii=False), encoding="utf-8")
 
 
 def build_index() -> int:
@@ -64,7 +76,7 @@ def build_index() -> int:
         text = f.read_text(encoding="utf-8", errors="ignore")
         for c in chunk_file(text, rel, is_markdown=f.suffix.lower() == ".md"):
             chunks.append({"path": c.path, "heading": c.heading, "text": c.text})
-    vectors = _embed_normalized([c["text"] for c in chunks])
+    vectors = _embed_normalized([_embed_input(c) for c in chunks])
     _save(chunks, vectors, _scan_hashes(root))
     print(f"全量索引完成: {len(chunks)} 块 / {vectors.shape[1]} 维 / {time.time() - t0:.1f}s",
           file=sys.stderr)  # stderr：MCP stdio 下 stdout 是协议通道
@@ -72,11 +84,17 @@ def build_index() -> int:
 
 
 def incremental_index() -> dict:
-    """增量入库：按文件哈希只重嵌新增/变更部分；无 meta 时回退全量。"""
+    """增量入库：按文件哈希只重嵌新增/变更部分；无 meta 或嵌入模型/前缀变更时回退全量
+    （不同模型的向量混存是静默错配，宁 hours 级重建不可混）。"""
     root = validate_kb_path()
     t0 = time.time()
     meta_path = Path(INDEX_DIR) / META_JSON
-    if not meta_path.exists():
+    old_meta = {}
+    if meta_path.exists():
+        old_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    embed_changed = old_meta.get("embed", {}).get("model") != EMBED_MODEL
+
+    if not meta_path.exists() or embed_changed:
         build_index()
         from .hybrid import build_bm25_index
         from .store import build_chroma
@@ -88,7 +106,7 @@ def incremental_index() -> dict:
 
     chunks = json.loads((Path(INDEX_DIR) / "chunks.json").read_text(encoding="utf-8"))
     vectors = np.load(Path(INDEX_DIR) / "vectors.npy")
-    old_hashes = json.loads(meta_path.read_text(encoding="utf-8"))["hashes"]
+    old_hashes = old_meta["hashes"]
     new_hashes = _scan_hashes(root)
 
     changed = {rel for rel, h in new_hashes.items() if old_hashes.get(rel) != h}

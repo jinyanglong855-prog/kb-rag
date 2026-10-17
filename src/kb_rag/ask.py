@@ -18,7 +18,7 @@ import re
 
 from openai import OpenAI
 
-from . import scopes
+from . import rewrite, scopes
 from .aliases import resolve_aliases
 from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .hybrid import hybrid_query
@@ -124,8 +124,17 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
                                 f"节点摘要：{w['summary']}\n{w['file_text']}"))
                 added_rels.add(rel)
     fetch = k * 3 if restricted else k
-    hits = [h for h in hybrid_query(question, k=fetch)
-            if scopes.in_scope(h["path"], allowed)][:k]
+    if rewrite.enabled():
+        # 查询改写融合检索（Multi-Query + HyDE；SHA-1 缓存保证同问题同改写，
+        # 检索逐位可复现）+ 精排——多路候选先融合再由交叉编码器择优
+        from .rerank import rerank
+
+        hits = [h for h in rewrite.fused_query(question, k=fetch)
+                if scopes.in_scope(h["path"], allowed)]
+        hits = rerank(question, hits)[:k]
+    else:
+        hits = [h for h in hybrid_query(question, k=fetch)
+                if scopes.in_scope(h["path"], allowed)][:k]
     if not hits and not sources:
         return notice + "知识库中没有检索到相关内容（或内容不在调用者的读范围内）。"
     for h in hits:

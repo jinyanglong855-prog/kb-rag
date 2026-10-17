@@ -17,6 +17,7 @@ from pathlib import Path
 from .config import KB_PATH, validate_kb_path
 from .hybrid import hybrid_query
 from .rerank import rerank
+from .rewrite import fused_query
 from .search import query as vector_query
 from .wikitree import wiki_query
 
@@ -60,6 +61,10 @@ def _eval_case(case: dict, skip_graph: bool) -> dict:
         hybrid = hybrid_query(q, 8)
         row["hybrid@8"] = _path_hit(expected, [h["path"] for h in hybrid])
         row["hybrid+rerank@5"] = _path_hit(expected, [h["path"] for h in rerank(q, hybrid)[:5]])
+        # 查询改写层对照（Multi-Query + HyDE 融合；改写缓存已预热则逐位可复现）
+        fused = fused_query(q, k=8)
+        row["改写融合@8"] = _path_hit(expected, [h["path"] for h in fused])
+        row["改写融合+精排@5"] = _path_hit(expected, [h["path"] for h in rerank(q, fused)[:5]])
     if case["type"] == "status":
         wiki_paths = []
         for w in wiki_query(q, k=3):
@@ -84,7 +89,7 @@ def run_evals(skip_graph: bool = False) -> list[dict]:
     t0 = time.time()
     rows = [_eval_case(c, skip_graph) for c in cases]
 
-    layers = ["vector@5", "hybrid@8", "hybrid+rerank@5", "status路由", "graph"]
+    layers = ["vector@5", "hybrid@8", "hybrid+rerank@5", "改写融合@8", "改写融合+精排@5", "status路由", "graph"]
     print(f"{'case':10} {'type':11} " + " ".join(f"{l:16}" for l in layers))
     hits = {l: 0 for l in layers}
     tried = {l: 0 for l in layers}
