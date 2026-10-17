@@ -22,4 +22,8 @@ def get_model() -> TextEmbedding:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    return list(get_model().embed(texts))
+    # batch_size=4（2026-10-17 实测，真实语料块最长 1195 字）：Qwen3 是解码器
+    # 架构，fastembed 默认批 256 在长文本下 ONNX 单次推理就把 RSS 顶到 ~7.9GB
+    # 被 macOS jetsam 杀（重建三次 EXIT=137 的真凶）；批 16 更糟（9.6GB）。
+    # 批 4 峰值 3.4GB 且反而最快（3 条/s vs 默认 1 条/s），内存速度双优。
+    return list(get_model().embed(texts, batch_size=4))
