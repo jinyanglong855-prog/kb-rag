@@ -51,10 +51,18 @@ def _chunk_files(root: Path, rels: set[str]) -> tuple[list[dict], list[str]]:
     return chunks, [_embed_input(c) for c in chunks]
 
 
-def _embed_normalized(texts: list[str]) -> np.ndarray:
-    vectors = np.array(embed(texts), dtype=np.float32)
-    vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-10)
-    return vectors
+def _embed_normalized(texts: list[str], batch: int = 2048) -> np.ndarray:
+    # 分批嵌入+预分配：embed() 返回的 Python float 列表在 93k×1024 维约 4GB，
+    # 一次性转 numpy 会撑爆 16GB 内存被 jetsam 杀（2026-10-17 实测四连杀）；
+    # 分批后每批仅 ~84MB 瞬时占用，全库峰值 ~1.2GB
+    out: np.ndarray | None = None
+    for i in range(0, len(texts), batch):
+        vecs = np.array(embed(texts[i:i + batch]), dtype=np.float32)
+        vecs /= np.maximum(np.linalg.norm(vecs, axis=1, keepdims=True), 1e-10)
+        if out is None:
+            out = np.zeros((len(texts), vecs.shape[1]), dtype=np.float32)
+        out[i:i + len(vecs)] = vecs
+    return out if out is not None else np.zeros((0, 1024), dtype=np.float32)
 
 
 def _save(chunks: list[dict], vectors: np.ndarray, hashes: dict[str, str]) -> None:
