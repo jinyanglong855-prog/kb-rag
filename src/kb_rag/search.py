@@ -56,19 +56,15 @@ def _embed_normalized(texts: list[str], batch: int = 256) -> np.ndarray:
     # 内存大户在 embedder 内部——fastembed 默认批 256 在真实长文本上单次推理
     # RSS ~7.9GB 被 jetsam 杀（2026-10-17 三连杀真凶，与外层分段大小无关），
     # 已在 embedder 钉死 batch_size=4；本层批大小只影响 numpy 转换的瞬时占用。
-    # 按长度排序再分批（2026-10-19 实测 +13% 吞吐）：批内长度相近、填充近零。
-    # 向量只在末位浮点上随"批内伙伴"变化（64 条实测最大差 3.4e-7、余弦 ≥0.99999988），
-    # 与增量入库天然存在的批组成差异同量级，不影响检索排序；线程数对数值无影响。
-    # 排序后批组成由语料唯一决定，同语料全量重建逐位可复现。
-    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    # 按长度排序分批试过（+14% 吞吐）但在长块密集区四连死（rc=137），已回退——
+    # 前 72000 块用本顺序零失败跑完，提速不值得重蹈（2026-10-19）
     out: np.ndarray | None = None
-    for i in range(0, len(order), batch):
-        idx = order[i:i + batch]
-        vecs = np.array(embed([texts[j] for j in idx]), dtype=np.float32)
+    for i in range(0, len(texts), batch):
+        vecs = np.array(embed(texts[i:i + batch]), dtype=np.float32)
         vecs /= np.maximum(np.linalg.norm(vecs, axis=1, keepdims=True), 1e-10)
         if out is None:
             out = np.zeros((len(texts), vecs.shape[1]), dtype=np.float32)
-        out[idx] = vecs
+        out[i:i + len(vecs)] = vecs
     return out if out is not None else np.zeros((0, 1024), dtype=np.float32)
 
 
