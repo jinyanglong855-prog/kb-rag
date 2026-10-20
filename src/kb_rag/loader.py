@@ -27,6 +27,11 @@ TEXT_EXTS = {
 }
 MAX_FILE_CHARS = 200_000  # md 超限截断；非 md 超限整文件跳过
 MAX_NON_MD_BYTES = 100_000  # 非 md 源码/配置上限（vendor 压缩库远超此值）
+# 单块硬上限：一行超长文件（内嵌源码的字符串常量、压缩 JSON）段落和行都切不开，
+# 曾产出 42782 字块 → 嵌入一次 ~3 万 token 推理抢 8-10GB 被 jetsam 杀
+# （2026-10-19 段 72000-76000 七连死真凶）。6000 = 已嵌块实际最大 5765 之上，
+# 兜底线上移不拆任何既有块，保证已嵌的 72000 块清单逐字节不变、断点不作废
+MAX_CHUNK_CHARS = 6000
 
 
 @dataclass(frozen=True)
@@ -144,4 +149,12 @@ def _split_long(body: str, path: str, heading: str) -> list[Chunk]:
             size += len(line) + 1
         if line_block:
             final.append("\n".join(line_block))
-    return [Chunk(text=p, path=path, heading=heading) for p in final]
+    # 单行超长兜底：行都切不开时按定长窗口硬切（>6000 字的块向量必然稀释，检索不可用）
+    windowed: list[str] = []
+    for part in final:
+        if len(part) <= MAX_CHUNK_CHARS:
+            windowed.append(part)
+            continue
+        windowed.extend(part[i:i + MAX_CHUNK_CHARS]
+                        for i in range(0, len(part), MAX_CHUNK_CHARS))
+    return [Chunk(text=p, path=path, heading=heading) for p in windowed]

@@ -64,3 +64,16 @@ def test_embed_normalized_keeps_positions(monkeypatch):
     assert np.allclose(recovered, [5, 1, 3, 8, 2])
     assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
     assert search_mod._embed_normalized([], batch=2).shape == (0, 1024)
+
+
+def test_split_long_caps_oversized_single_line():
+    """单行超长兜底：4 万字单行必须切成 ≤6000 的窗口；≤6000 的单行保持原样（断点对齐保守线）。"""
+    from kb_rag.loader import MAX_CHUNK_CHARS, chunk_file
+
+    giant = "x" * 42782  # 2026-10-19 七连死真凶的实际形状
+    chunks = chunk_file(giant, "a/b.ts", is_markdown=False)
+    assert all(len(c.text) <= MAX_CHUNK_CHARS for c in chunks)
+    assert sum(len(c.text) for c in chunks) >= 42782  # 内容不丢
+
+    edge = chunk_file("y" * 5765, "a/c.md", is_markdown=True)  # 已嵌块最大实际值
+    assert len(edge) == 1 and len(edge[0].text) == 5765  # 拆了会作废已嵌断点
