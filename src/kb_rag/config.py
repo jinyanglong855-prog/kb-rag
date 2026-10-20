@@ -15,7 +15,9 @@ KB_PATH = Path(os.environ.get("KB_PATH", ""))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _raw_index_dir = os.environ.get("INDEX_DIR", "index")
 INDEX_DIR = Path(_raw_index_dir) if Path(_raw_index_dir).is_absolute() else REPO_ROOT / _raw_index_dir
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B-Q")
+# 临时顶回 bge：Qwen3 重建尚未完成，index/ 里是 bge 备份，查询向量必须同空间。
+# 新索引 finalize 后改回 "Qwen/Qwen3-Embedding-0.6B-Q"（2026-10-20）
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
 LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
