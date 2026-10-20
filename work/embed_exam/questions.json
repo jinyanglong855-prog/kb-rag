@@ -1,0 +1,590 @@
+{
+ "date": "2026-10-21",
+ "n_verified": 12,
+ "n_synthetic": 48,
+ "questions": [
+  {
+   "id": "single-1",
+   "type": "single_hop",
+   "question": "kb-rag 的精排 rerank 用的什么模型？",
+   "expected_any": [
+    "kb-rag/项目文件/README.md"
+   ]
+  },
+  {
+   "id": "single-2",
+   "type": "single_hop",
+   "question": "用户的营业执照是什么类型？",
+   "expected_any": [
+    "个人画像/项目状态/README.md",
+    "个人画像/项目状态/STATUS.md"
+   ]
+  },
+  {
+   "id": "single-3",
+   "type": "single_hop",
+   "question": "公司智能体项目依托哪个框架？",
+   "expected_any": [
+    "公司智能体/项目状态/README.md"
+   ]
+  },
+  {
+   "id": "single-4",
+   "type": "single_hop",
+   "question": "kb-rag 用哪个嵌入模型把文档转向量？",
+   "expected_any": [
+    "kb-rag/项目文件/README.md"
+   ]
+  },
+  {
+   "id": "single-5",
+   "type": "single_hop",
+   "question": "马来西亚选品项目做的是哪个市场？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/README.md"
+   ]
+  },
+  {
+   "id": "status-1",
+   "type": "status",
+   "question": "小红书宠物项目现在停在哪一步？",
+   "expected_any": [
+    "小红书宠物/项目状态/STATUS.md"
+   ]
+  },
+  {
+   "id": "status-2",
+   "type": "status",
+   "question": "创作台的服务现在还开着吗？",
+   "expected_any": [
+    "个人创作台/项目状态/STATUS.md"
+   ]
+  },
+  {
+   "id": "status-3",
+   "type": "status",
+   "question": "kb-rag 框架搭建到什么程度了？",
+   "expected_any": [
+    "kb-rag/项目状态/README.md"
+   ]
+  },
+  {
+   "id": "multi-1",
+   "type": "multi_hop",
+   "question": "kb-rag 知识库和公司智能体是什么关系？",
+   "expected_any": [
+    "公司智能体/项目状态/README.md",
+    "kb-rag/项目状态/README.md",
+    "kb-rag/项目文件/README.md"
+   ]
+  },
+  {
+   "id": "multi-2",
+   "type": "multi_hop",
+   "question": "用户做过哪些和宠物有关的项目？",
+   "expected_any": [
+    "小红书宠物",
+    "马来西亚 TikTok Shop 真实爆品选品",
+    "个人画像"
+   ]
+  },
+  {
+   "id": "multi-3",
+   "type": "multi_hop",
+   "question": "宁波创业方向和舍友的跨境电商创业是什么关系？",
+   "expected_any": [
+    "个人画像/项目状态/README.md",
+    "个人画像/项目状态/产出区/2026-09-30 - 职业发展规划 v1.md"
+   ]
+  },
+  {
+   "id": "multi-4",
+   "type": "multi_hop",
+   "question": "个人画像和职业发展规划是什么关系？",
+   "expected_any": [
+    "个人画像/项目状态",
+    "职业发展规划"
+   ]
+  },
+  {
+   "id": "syn-52215",
+   "type": "synthetic",
+   "question": "解析预览用的 fixture 清单时，如果清单格式不对，比如版本号不被支持、默认项引用了一个不存在或重复的 id，或者某个条目本身不合法，解析器会直接报错吗？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/experimental/webworker-runtime/tests/fixture-manifest.spec.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/experimental/webworker-runtime/tests/fixture-manifest.spec.ts#源码",
+   "answer": "会，parsePreviewFixtureManifest 对这些畸形清单都会抛出错误，分别匹配版本、defaultFixture、重复 id 和无效条目的错误信息。"
+  },
+  {
+   "id": "syn-89991",
+   "type": "synthetic",
+   "question": "这个15秒的猫碗带货视频按新脚本重做之后，大概效果会怎么样？有什么风险要提前注意？",
+   "expected_any": [
+    "抖音带货视频剪辑工作台/项目状态/03_成品产出/视频脚本/quokka-three-leaf-elevated-cat-bowl/15秒全动态脚本-v2.md"
+   ],
+   "gold_chunk_key": "抖音带货视频剪辑工作台/项目状态/03_成品产出/视频脚本/quokka-three-leaf-elevated-cat-bowl/15秒全动态脚本-v2.md#盲预测",
+   "answer": "预测3秒停留中高、完播高于v1、商品点击中等；最大风险是生成模型可能让三叶底座变形、猫脸失真或切换机位时改变猫粮量，生成后需检查首尾帧、四个分段交界和商品结构。"
+  },
+  {
+   "id": "syn-91793",
+   "type": "synthetic",
+   "question": "马来西亚TikTok上那些自动喂食宠物粮的视频，播放量和互动情况大概怎么样？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/喂养与饮水/MY-0084 - 定时智能干粮喂食器.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/喂养与饮水/MY-0084 - 定时智能干粮喂食器.md#来源证据",
+   "answer": "几条相关视频中播放量从约1.28万到16.45万不等，点赞数从59到2470，分享数从23到361，均为非估算的D2级TikTok来源。"
+  },
+  {
+   "id": "syn-208",
+   "type": "synthetic",
+   "question": "那个 cheat-on-content 技能现在是不是只能用在某个特定项目上了？比如随便说打分的词还会触发它吗？",
+   "expected_any": [
+    "Shared/归档/本地知识库建设/2026-06-19 - 收窄 cheat-on-content 为小红书项目入口.md"
+   ],
+   "gold_chunk_key": "Shared/归档/本地知识库建设/2026-06-19 - 收窄 cheat-on-content 为小红书项目入口.md#修复",
+   "answer": "是的，它现在被限定为小红书内容项目专用，泛用的打分、预测、复盘等词不能直接触发，必须先通过 kb-maintainer 定位到 OB 小红书项目后才会使用。"
+  },
+  {
+   "id": "syn-91050",
+   "type": "synthetic",
+   "question": "我想在TikTok Shop马来西亚站上卖那种透明的亚克力宠物隔离门，选品时应该挑什么样的、又要避开哪些坑？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/休息与居家/MY-0236 - 透明亚克力宠物门栏.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/休息与居家/MY-0236 - 透明亚克力宠物门栏.md#商品原型",
+   "answer": "优先选厚板圆角、金属包边或加固孔位、双点锁止并提供安装尺寸图的款式；避开薄板易弯、裸露切割边、钻孔处无加固、仅粘贴固定或高度不足以防跳跃的款式。"
+  },
+  {
+   "id": "syn-33384",
+   "type": "synthetic",
+   "question": "设置表单里那个 shell 方法返回的状态都包含哪些字段，分别代表什么意思？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-primitives/src/settings-form/form-model.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-primitives/src/settings-form/form-model.ts#源码",
+   "answer": "shell() 返回 available（是否就绪可用）、writable（是否可写）、dirty（是否有待保存的改动）、invalid（是否存在既无 run 也无 op 的无效计划项）、saving（是否正在保存）和 failed（是否保存失败）。"
+  },
+  {
+   "id": "syn-90524",
+   "type": "synthetic",
+   "question": "马来西亚那边有没有那种会自己游动、碰到东西还能拐弯的电动蛇形逗猫玩具卖得不错？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/互动玩具与训练/MY-0147 - 感应电动蛇猫玩具.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/互动玩具与训练/MY-0147 - 感应电动蛇猫玩具.md#",
+   "answer": "有，MY-0147 感应电动蛇猫玩具在马来西亚属于单平台强信号候选，采用仿蛇分节外壳内置轮组和感应器，启动后蜿蜒前进并遇障转向。"
+  },
+  {
+   "id": "syn-66107",
+   "type": "synthetic",
+   "question": "如果用户拒绝或取消了审批请求，bash 工具会分别报什么错？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/shell/tool-bash/tests/tools.spec.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/shell/tool-bash/tests/tools.spec.ts#源码",
+   "answer": "用户拒绝时返回“user rejected”，取消时返回“was cancelled”，且不会切换执行模式。"
+  },
+  {
+   "id": "syn-4110",
+   "type": "synthetic",
+   "question": "现在网页上生成图片时，历史记录里能看到哪些信息，能不能一次把整组图打包下载？",
+   "expected_any": [
+    "个人创作台/项目状态/归档/2026-07-16 - 项目主页历史快照（截至 v1.3.0）.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/归档/2026-07-16 - 项目主页历史快照（截至 v1.3.0）.md#版本进度",
+   "answer": "历史记录会显示第一张主图预览、商品名、生成时间、四图链接、提示词和清理报告，并提供下载整组的 zip 按钮，且不显示本机绝对路径。"
+  },
+  {
+   "id": "syn-36300",
+   "type": "synthetic",
+   "question": "网页客户端的插件设置里，那个按作用域分组、只能查看的插件清单标签页是怎么安排显示顺序的？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-settings-plugin-inventory/README.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-settings-plugin-inventory/README.md#",
+   "answer": "先显示智能体预设的组合，全局层面的内容折叠在展开项后面，搜索会同时覆盖这两部分。"
+  },
+  {
+   "id": "syn-63",
+   "type": "synthetic",
+   "question": "咱们知识库的目录导航是怎么设计的？每个项目该怎么找路？",
+   "expected_any": [
+    "Shared/决策区/2026-07-17 - 全知识库三级索引与生命周期规则.md"
+   ],
+   "gold_chunk_key": "Shared/决策区/2026-07-17 - 全知识库三级索引与生命周期规则.md#决定",
+   "answer": "整个知识库用“根 README → 根 INDEX → 各模块 README”导航，每个多板块项目用“项目 README → 项目 INDEX → 模块 README”导航。"
+  },
+  {
+   "id": "syn-371",
+   "type": "synthetic",
+   "question": "那个检查脚本平时怎么跑，什么情况下需要加 --full 参数？",
+   "expected_any": [
+    "Shared/验证/README.md"
+   ],
+   "gold_chunk_key": "Shared/验证/README.md#验证",
+   "answer": "日常运行 python3 check_knowledge_base.py 即可，默认只核对根 STATUS.md、项目更新时间和项目状态 sync ID；结构变化、归档和正式收口时才运行 python3 check_knowledge_base.py --full。"
+  },
+  {
+   "id": "syn-146",
+   "type": "synthetic",
+   "question": "我有一堆零散素材，应该先建什么再往里放东西？",
+   "expected_any": [
+    "Shared/归档/2026-07-17 - 知识库根 README 详细手册快照.md"
+   ],
+   "gold_chunk_key": "Shared/归档/2026-07-17 - 知识库根 README 详细手册快照.md#维护原则",
+   "answer": "先建主题文件夹，再放原始素材、素材卡、AI 生成素材和来源说明。"
+  },
+  {
+   "id": "syn-17435",
+   "type": "synthetic",
+   "question": "消息来源里有个 form 字段，它到底能取哪些值？各自代表什么意思？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/docs/subsystems/llm-streaming.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/docs/subsystems/llm-streaming.md#Content blocks and messages",
+   "answer": "form 是语义分类，取值有 instructions、catalog、snapshot、notice、relay、recall，分别表示工作区文件里的指令、会话可用项目录、可被后续快照取代的当前状态、一次性事件通知、其他 agent 发来的消息、从别的会话日志中摘取的材料；缺省或未知值按不透明内容处理。"
+  },
+  {
+   "id": "syn-19648",
+   "type": "synthetic",
+   "question": "离线部署的时候，怎么让 SDK 找到已经准备好的运行时缓存？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/docs/upgrade-guide/v0.2.1-alpha.1/python-optional-resources/guide.zh.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/docs/upgrade-guide/v0.2.1-alpha.1/python-optional-resources/guide.zh.md#迁移",
+   "answer": "在下载和启动 SDK 前，把 DSH_RESOURCE_CACHE 环境变量设为缓存根目录的绝对路径。"
+  },
+  {
+   "id": "syn-69563",
+   "type": "synthetic",
+   "question": "我开了那个子代理模型选择的开关之后，为啥有些后端会直接报错？还有恢复的会话为什么没生效？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/subagent/tool-subagent/README.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/subagent/tool-subagent/README.md#Use this package",
+   "answer": "因为该模式要求后端支持 agentOptions，ACP、Codex 和 Claude Code 会直接拒绝而非忽略；而恢复的会话如果没有记录过策略就保持禁用，包括显式空恢复的情况。"
+  },
+  {
+   "id": "syn-4018",
+   "type": "synthetic",
+   "question": "Mini 版模型是不是只能匹配特定开头的 ID？标准版和 Mini 混着用会不会被本地直接拦掉、连网都不发？",
+   "expected_any": [
+    "个人创作台/项目状态/工作日志/2026-07-23 - Seedance 2.0 Mini 首次提交诊断.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/工作日志/2026-07-23 - Seedance 2.0 Mini 首次提交诊断.md#自动防线与验证",
+   "answer": "是，Mini 变体只匹配 doubao-seedance-2-0-mini- 前缀；标准版 Model ID 与 Mini 组合会在本地阻断且不调用网络。"
+  },
+  {
+   "id": "syn-92933",
+   "type": "synthetic",
+   "question": "马来西亚宠物多宠家庭协同管理器具那次采集跑完了吗，成功采到多少条、新候选有几个？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/采集批次/MY-RUN-20260718-27 - 多宠家庭协同管理器具五平台采集.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/采集批次/MY-RUN-20260718-27 - 多宠家庭协同管理器具五平台采集.md#",
+   "answer": "已完成，成功记录207条，新候选5个，价格观察8条。"
+  },
+  {
+   "id": "syn-72463",
+   "type": "synthetic",
+   "question": "智能体在对话里怎么记录和跟踪待办任务？这个任务清单在重新打开会话后还能保留吗？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/todo/README.zh.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/todo/README.zh.md#概述",
+   "answer": "todo 组提供会话级任务列表，可通过 todo_write 工具添加、标记进行中、逐项完成，列表跨轮次和重新打开的会话持续存在，每次更新整体替换，且不附带 UI。"
+  },
+  {
+   "id": "syn-3623",
+   "type": "synthetic",
+   "question": "这次更新后都做了哪些验证？测试覆盖了哪些新场景？",
+   "expected_any": [
+    "个人创作台/项目状态/工作日志/2026-07-14 - v28.21 渐进出图与并行质检.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/工作日志/2026-07-14 - v28.21 渐进出图与并行质检.md#验证",
+   "answer": "静态检查与115项离线回归测试通过，新增模拟全流程和任务锁测试，确认了出图与质检重叠、并发上限、回调只执行一次及后台质检不占生成名额等行为。"
+  },
+  {
+   "id": "syn-89418",
+   "type": "synthetic",
+   "question": "为什么那几页内容全被塞到客厅里了？还有第3页吃饭喝水那块为什么只有文字没画面？",
+   "expected_any": [
+    "小红书宠物/项目状态/工作日志/2026-07-22 - 疯跑底图失效与生图前最高门禁升级.md"
+   ],
+   "gold_chunk_key": "小红书宠物/项目状态/工作日志/2026-07-22 - 疯跑底图失效与生图前最高门禁升级.md#根因",
+   "answer": "因为先看现成客厅素材再反向安排叙事，导致五页被错误压进客厅；第3页“吃饭喝水”被文字替代，没有画面证据。"
+  },
+  {
+   "id": "syn-12226",
+   "type": "synthetic",
+   "question": "哪些 dsh 插件是不需要任何配置就能加载的？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/docs/config-catalog.zh.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/docs/config-catalog.zh.md#无配置的可加载插件",
+   "answer": "不需要配置的插件有 dsh-experimental-session-inspector、dsh-fs-observation-policy 和 dsh-host-directory-picker-native。"
+  },
+  {
+   "id": "syn-7762",
+   "type": "synthetic",
+   "question": "Windows 上给安装包做签名时，如果传的 PIN 是空的或者里面带特殊符号，会报什么错？另外签名是不是只支持 sha256，嵌套签名能不能用？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/apps/desktop/tests/windows-sign.spec.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/apps/desktop/tests/windows-sign.spec.ts#源码",
+   "answer": "空 PIN 会抛出包含 DSH_DESKTOP_WINDOWS_TOKEN_PIN 的错误，PIN 含 ] 等字符会报 cannot contain；用 sha1 签名会提示 requires SHA-256，而 isNest 为 true 时会报 does not support appended signatures。"
+  },
+  {
+   "id": "syn-92478",
+   "type": "synthetic",
+   "question": "给宠物洗澡后吹干用的那种固定装置，挑的时候要留意哪些点、别买哪种？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0258 - 高速宠物吹水机.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0258 - 高速宠物吹水机.md#商品原型",
+   "answer": "优先选圆角、好清洁、连接件有防脱设计且说明完整的款式；避开没有承重或温控说明、容易缠绕、有尖锐处、密闭或无法紧急释放的款式。"
+  },
+  {
+   "id": "syn-123",
+   "type": "synthetic",
+   "question": "我如果想知道之前公网隧道出问题或者想升级版本该翻哪篇记录？",
+   "expected_any": [
+    "Shared/归档/2026-07-17 - 文档目录历史快照.md"
+   ],
+   "gold_chunk_key": "Shared/归档/2026-07-17 - 文档目录历史快照.md#Codex 项目",
+   "answer": "可以看 2026-07-15 的 Cloudflare Tunnel 守护与版本升级记录，里面讲了 cloudflared 升级、守护行为和回滚点。"
+  },
+  {
+   "id": "syn-90093",
+   "type": "synthetic",
+   "question": "做带货视频时，图片和视频在素材使用上各自负责什么，有没有统一的规矩？",
+   "expected_any": [
+    "抖音带货视频剪辑工作台/项目状态/04_系统配置/个人工作台图视频生成参照规范.md"
+   ],
+   "gold_chunk_key": "抖音带货视频剪辑工作台/项目状态/04_系统配置/个人工作台图视频生成参照规范.md#统一素材覆盖合同",
+   "answer": "图片和视频共同执行素材覆盖合同，图片只负责身份、场景锚点等静态职责，动态动作、反应和结果由 Seedance 这类动态素材承担，生成后还要按时间段回填实际覆盖。"
+  },
+  {
+   "id": "syn-4101",
+   "type": "synthetic",
+   "question": "最近几次版本更新分别做了哪些事，有没有记录测试数量和服务加载情况？",
+   "expected_any": [
+    "个人创作台/项目状态/归档/2026-07-16 - 项目主页历史快照（截至 v1.3.0）.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/归档/2026-07-16 - 项目主页历史快照（截至 v1.3.0）.md#产出文件清单",
+   "answer": "有，从 v28.25 到 v28.32 每个版本都记录了实现内容、测试数量（132 至 160 项）以及服务加载等细节，旧接续页已被对应版本取代。"
+  },
+  {
+   "id": "syn-58",
+   "type": "synthetic",
+   "question": "咱们这个本地知识库以后是不是只靠一个 agent 来维护了？那各个项目的内容现在都放在哪儿啊？",
+   "expected_any": [
+    "Shared/决策区/2026-06-26 - Codex 单 agent 维护模型.md"
+   ],
+   "gold_chunk_key": "Shared/决策区/2026-06-26 - Codex 单 agent 维护模型.md#决策",
+   "answer": "是的，从2026-06-26起采用单agent维护模型，所有活跃项目统一写入 Codex/<项目名>/，Shared/ 只放全局规则、模板、索引、决策和公共资料。"
+  },
+  {
+   "id": "syn-151",
+   "type": "synthetic",
+   "question": "我同时用好几个AI助手干活，它们各自的过程记录和产出该怎么分开放才不会乱？",
+   "expected_any": [
+    "Shared/归档/旧 AI 产出分区说明.md"
+   ],
+   "gold_chunk_key": "Shared/归档/旧 AI 产出分区说明.md#写入原则",
+   "answer": "每个AI自己的过程记录和产出分别放进以它名字命名的目录，双方都要知道的背景、交接、对比和共识放进共享目录，项目权威状态和重要决策仍分别写入原有的项目与决策目录。"
+  },
+  {
+   "id": "syn-3562",
+   "type": "synthetic",
+   "question": "这次清理把哪些东西删掉了，又有哪些历史数据是特意保留下来、只是不能再用来生成新内容的？",
+   "expected_any": [
+    "个人创作台/项目状态/工作日志/2026-07-13 - v28.8 旧内容清理与服务加载.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/工作日志/2026-07-13 - v28.8 旧内容清理与服务加载.md#清理范围",
+   "answer": "清空了 work/ 过程区并重建空的 prod、dev、releases 子目录，删除旧市场研究样本、上传缓存、下载包、画像候选、模型测试、使用/反馈日志和一次性脚本，还清了 Python 缓存和旧网页日志；outputs/prod 和 outputs/dev 里的历史成图、质检报告和运行记录被保留，仅供查看、不参与新生成。"
+  },
+  {
+   "id": "syn-18941",
+   "type": "synthetic",
+   "question": "语音这块怎么一次性拿到当前用的是哪个服务商、还有我选的语音偏好这些信息？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/docs/subsystems/voice-input.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/docs/subsystems/voice-input.md#Cordis API",
+   "answer": "调用 snapshot() 方法，它会返回一份独立的完整观察结果，包含服务商就绪状态和当前用户偏好。"
+  },
+  {
+   "id": "syn-91347",
+   "type": "synthetic",
+   "question": "马来西亚那边有没有那种能折叠起来放车里、让大狗自己上下SUV后备箱的宠物坡道？大概多少钱？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/出行与安全/MY-0230 - 折叠式汽车宠物坡道.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/出行与安全/MY-0230 - 折叠式汽车宠物坡道.md#",
+   "answer": "有，折叠式汽车宠物坡道在Lazada MY有售，价格约93.36到200马币，但目前供应商还在找货阶段。"
+  },
+  {
+   "id": "syn-92715",
+   "type": "synthetic",
+   "question": "我用Lazada搜宠物牙刷的时候，页面明明加载出来了，但一条商品都没抓下来，这是怎么回事？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/原始快照/MY-RUN-20260717-16-lazada-pet-toothbrush-extraction-failure.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/原始快照/MY-RUN-20260717-16-lazada-pet-toothbrush-extraction-failure.md#Lazada MY｜`pet toothbrush`提取失败记录",
+   "answer": "OpenCLI返回搜索页已渲染但未能提取到任何商品卡，本次保存0条原始记录，只读检查显示页面正常、无验证码或登录异常，该次调用计入本批第1次额度且不重跑同一词。"
+  },
+  {
+   "id": "syn-92321",
+   "type": "synthetic",
+   "question": "这个挂墙式的狗狗尿盆在Lazada马来西亚站上卖多少钱啊？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0214 - 挂墙式公狗尿盆.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0214 - 挂墙式公狗尿盆.md#平台价格快照",
+   "answer": "页面显示价格是 RM29.99。"
+  },
+  {
+   "id": "syn-132",
+   "type": "synthetic",
+   "question": "我新开一个对话，想先搞清楚维护这个知识库有哪些操作规矩和流程，应该先看哪些说明？",
+   "expected_any": [
+    "Shared/归档/2026-07-17 - 文档目录历史快照.md"
+   ],
+   "gold_chunk_key": "Shared/归档/2026-07-17 - 文档目录历史快照.md#Shared 公共区",
+   "answer": "新会话时应先看 Codex 工作规则，开始项目对话前看项目对话启动检索规则，新建、重组、归档或复审文件前看全局文件治理规则 v2，不确定文件放哪时看项目文件夹职责边界。"
+  },
+  {
+   "id": "syn-90166",
+   "type": "synthetic",
+   "question": "马来西亚这个 TikTok Shop 项目现在做到哪一步了？商品上架后浏览不太行，接下来打算怎么弄流量？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/README.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/README.md#当前状态",
+   "answer": "已开通马来西亚 TikTok Shop 并完成首批商品上架，但商品浏览偏低，准备用店铺官方账号做内容来建立流量入口，后续以官方账号/子账号体系和真实内容测试为主。"
+  },
+  {
+   "id": "syn-74345",
+   "type": "synthetic",
+   "question": "我写插件的时候想用搜索和抓网页的功能，但不想绑定到某一家服务商，有没有现成的模块可以用？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/web/web/README.zh.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/web/web/README.zh.md#概述",
+   "answer": "可以用 dsh-web，它会在每次操作时自动挑选可用的后端，统一处理取消、错误和结果上限，插件里调用 ctx.web.search() 或 ctx.web.fetch() 即可；不过它本身不发网络请求，需要先配置好可用的提供方。"
+  },
+  {
+   "id": "syn-3526",
+   "type": "synthetic",
+   "question": "以后怎么把商品详情里反复出现的稳定信息整理成画像配置？",
+   "expected_any": [
+    "个人创作台/项目状态/工作日志/2026-07-12 - v27.18 商品详情输入与画像沉淀.md"
+   ],
+   "gold_chunk_key": "个人创作台/项目状态/工作日志/2026-07-12 - v27.18 商品详情输入与画像沉淀.md#后续",
+   "answer": "定期查看 work/prod/product_detail_inputs.jsonl 里的 profile_candidate，把高频且稳定的商品知识提炼进 web/product_prompt_profiles.json。"
+  },
+  {
+   "id": "syn-92270",
+   "type": "synthetic",
+   "question": "马来西亚这边有没有那种可以反复洗、腰围还能调的狗狗生理裤在卖？大概多少钱？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0175 - 可洗式狗狗生理裤.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/清洁与护理/MY-0175 - 可洗式狗狗生理裤.md#",
+   "answer": "有，Lazada MY 上观察到一款可洗式狗狗生理裤，价格约 4.7 马币，支持调节腰围，内置吸水层或可放替换垫。"
+  },
+  {
+   "id": "syn-90042",
+   "type": "synthetic",
+   "question": "做商品卡和短视频的时候，怎么保证两边的卖点说法一致？",
+   "expected_any": [
+    "抖音带货视频剪辑工作台/项目状态/04_系统配置/2026-08-03 - 小红书商品卡起量案例拆解.md"
+   ],
+   "gold_chunk_key": "抖音带货视频剪辑工作台/项目状态/04_系统配置/2026-08-03 - 小红书商品卡起量案例拆解.md#可吸收方法",
+   "answer": "让商品卡和短视频共用同一份商品事实源，不要各写一套卖点。"
+  },
+  {
+   "id": "syn-39477",
+   "type": "synthetic",
+   "question": "代码字体和终端字体的大小是分开设置的吗？各自能调的范围是多少？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-theme/tests/theme.client.spec.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/client/ui-theme/tests/theme.client.spec.ts#源码",
+   "answer": "是分开设置的，代码字体可调10到16，终端字体可调10到20，超出范围会报错。"
+  },
+  {
+   "id": "syn-244",
+   "type": "synthetic",
+   "question": "我下次新开 Codex 会话的时候，怎么确认它有没有自动把那个知识库维护的技能加载上？",
+   "expected_any": [
+    "Shared/归档/本地知识库建设/README.md"
+   ],
+   "gold_chunk_key": "Shared/归档/本地知识库建设/README.md#待复盘 / 待验证",
+   "answer": "下次新开 Codex 会话时确认是否自动加载 `kb-maintainer`，状态为待确认。"
+  },
+  {
+   "id": "syn-91498",
+   "type": "synthetic",
+   "question": "马来西亚那边有没有哪款双出水口的水龙头最近有不错的需求信号？我想看看这种厨房和浴室都能用的款式值不值得跟进。",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/历史综合候选/MY-0011 - 双出水口水龙头.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/数据区/候选商品/历史综合候选/MY-0011 - 双出水口水龙头.md#",
+   "answer": "有，MY-0011 双出水口水龙头在马来西亚 TikTok Shop 属于单平台强信号，但供应商还没落实，风险在于接口兼容和漏水售后。"
+  },
+  {
+   "id": "syn-92946",
+   "type": "synthetic",
+   "question": "我在整理商品数据的时候，怎么判断两个链接或者标题不一样的东西到底算不算同一个商品？",
+   "expected_any": [
+    "马来西亚 TikTok Shop 真实爆品选品/项目状态/系统规则区/候选池数据库字段与录入规则.md"
+   ],
+   "gold_chunk_key": "马来西亚 TikTok Shop 真实爆品选品/项目状态/系统规则区/候选池数据库字段与录入规则.md#去重规则",
+   "answer": "同平台相同 Listing ID 或 URL 视为同一原始记录；多平台标题不同但核心用途、结构和关键规格一致的合并为同一商品原型；仅容量、颜色或套装数量变化的归在同一原型下；核心结构、适用场景或用户问题不同的保留为不同原型；自动规则只能提合并建议，有歧义时不得自动合并。"
+  },
+  {
+   "id": "syn-42822",
+   "type": "synthetic",
+   "question": "tmux 状态变化的时候，模型那边会收到什么信息？会不会影响缓存？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/context/tmux-context/README.zh.md"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/context/tmux-context/README.zh.md#模型体验",
+   "answer": "每一轮变化会追加一条带来源标记的三行位置读数（会话、窗口、窗格及布局），仅追加不破坏已有 KV Cache，未变化或被间隔抑制时不新增内容。"
+  },
+  {
+   "id": "syn-88677",
+   "type": "synthetic",
+   "question": "那条台风天遛狗回家玄关的视频，曝光和观看数据怎么样？",
+   "expected_any": [
+    "小红书宠物/项目文件/小红书宠物/videos/2026-07-11_9f6d7a21b3c4_台风天遛狗回来玄关/report.md"
+   ],
+   "gold_chunk_key": "小红书宠物/项目文件/小红书宠物/videos/2026-07-11_9f6d7a21b3c4_台风天遛狗回来玄关/report.md#创作者中心原始摘要",
+   "answer": "曝光1577次，观看255次，封面点击率16.1%，平均观看时长12.7秒，点赞9、评论4、收藏3、分享和涨粉均为0。"
+  },
+  {
+   "id": "syn-22138",
+   "type": "synthetic",
+   "question": "如果服务端下发的会话控制基线里没带标题字段，那之前已经收到的新标题会不会被清掉？",
+   "expected_any": [
+    "公司智能体/项目文件/deepseek-harness/dsh/packages/api/session-controller/tests/projection-store.client.spec.ts"
+   ],
+   "gold_chunk_key": "公司智能体/项目文件/deepseek-harness/dsh/packages/api/session-controller/tests/projection-store.client.spec.ts#源码",
+   "answer": "不会，基线省略标题时保留已有的较新标题。"
+  },
+  {
+   "id": "syn-89537",
+   "type": "synthetic",
+   "question": "我在做宠物类内容，看到热搜想用到自家账号上，迁移的时候需要把哪些东西写清楚啊？",
+   "expected_any": [
+    "小红书宠物/项目状态/系统规则区/小红书热点抓取与候选池维护规则.md"
+   ],
+   "gold_chunk_key": "小红书宠物/项目状态/系统规则区/小红书热点抓取与候选池维护规则.md#科普优先内容轨 + 商品休眠轨",
+   "answer": "要标明原始热搜、可迁移元素、宠物真实场景、适合日常分享还是养宠技巧，以及蹭热搜感、违禁敏感、宠物舒适度、版权商标和说教感等风险点。"
+  }
+ ]
+}
