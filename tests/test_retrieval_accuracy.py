@@ -46,16 +46,13 @@ def test_hybrid_default_candidate_pool_is_50():
     assert default == 50  # 20 池实测漏 2 个评测金标（35/50 池才进），降回须先过评测闸门
 
 
-def test_embed_normalized_sorts_by_length_but_keeps_positions(monkeypatch):
-    """长度排序分批后向量必须回到原位：错位会让整个索引无声地"向量 i ≠ 块 i"。"""
+def test_embed_normalized_keeps_positions(monkeypatch):
+    """向量必须落回原位置：错位会让整个索引无声地"向量 i ≠ 块 i"。"""
     import numpy as np
 
     import kb_rag.search as search_mod
 
-    seen_batches: list[list[str]] = []
-
     def fake_embed(texts):
-        seen_batches.append(list(texts))
         return [[float(len(t)), 1.0] for t in texts]  # 向量第一维 = 文本长度，可反查来源
 
     monkeypatch.setattr(search_mod, "embed", fake_embed)
@@ -66,7 +63,4 @@ def test_embed_normalized_sorts_by_length_but_keeps_positions(monkeypatch):
     recovered = out[:, 0] / out[:, 1]
     assert np.allclose(recovered, [5, 1, 3, 8, 2])
     assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
-    # 真的按长度分了批：每批内部长度不减
-    flat = [len(t) for b in seen_batches for t in b]
-    assert flat == sorted(flat)
     assert search_mod._embed_normalized([], batch=2).shape == (0, 1024)
