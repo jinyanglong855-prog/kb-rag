@@ -32,6 +32,12 @@ EMBED_QUERY_INSTRUCT = os.environ.get("EMBED_QUERY_INSTRUCT", "")
 # 全量/增量嵌入的断点粒度（块）：每段落盘一次，进程被杀最多重做一段
 EMBED_SEGMENT = int(os.environ.get("EMBED_SEGMENT", "4000"))
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
+# 父子分块（small-to-big）：检索与排序仍按子块（现切块），ask 装配层把命中块
+# 膨胀为父块（同文件同标题的连续块串=章节/整文件）再进上下文——命中精确、
+# 回答带上下文。KB_PARENT_RETRIEVE=0 一键回退；预算=单父块进上下文的目标上限
+# （软上限：命中块自身超预算时按原块完整返回，不丢命中）。
+PARENT_RETRIEVE = os.environ.get("KB_PARENT_RETRIEVE", "1") != "0"
+PARENT_MAX_CHARS = int(os.environ.get("KB_PARENT_CHARS", "3000"))
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
 LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")

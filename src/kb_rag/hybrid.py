@@ -66,7 +66,7 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list
     """RRF: score = Σ 1/(60 + rank)。两路各取候选，按融合分排序。
 
     候选池 50（2026-10-16 实测）：20 池漏 2 个评测用例的金标（35/50 池才进池）；
-    加深池只加宽召回，精排仍只对返回的 k 条算分，查询成本不变。
+    加深池只加宽召回。ask 层的精排在父块去重截断前对超量召回（k×3）整池打分。
     """
     chunks = _load_chunks()
     # BM25 与块的行号必须同源：落盘与 BM25 重建之间的窗口里，旧行号映射会错配
@@ -82,9 +82,6 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list
     vector_candidates = min(vector_candidates, len(chunks))
 
     vec_hits = vector_query(question, k=vector_candidates)
-    path_to_rank = {h["path"] + "#" + h["heading"]: r for r, h in enumerate(vec_hits, 1)}
-    # 向量路：直接用已算好的序
-    vec_ranked = [(path_to_rank[key], r) for key, r in path_to_rank.items()]
 
     bm_hits = _bm25_query(question, k=vector_candidates)
     bm_ranked = list(enumerate(bm_hits, 1))  # (rank, (idx, score))
@@ -92,13 +89,12 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list
     rrf: dict[int, float] = {}
     for rank, (idx, _s) in bm_ranked:
         rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (60 + rank)
-    # 向量路需要 path->idx 映射
-    path_to_idx = {c["path"] + "#" + c["heading"]: i for i, c in enumerate(chunks)}
-    for rank, key in enumerate(
-        sorted(path_to_rank, key=lambda kk: path_to_rank[kk]), 1
-    ):
-        idx = path_to_idx.get(key)
-        if idx is not None:
+    # 向量路直接用命中自带行号。历史上按"path#heading→行号"中转，同键多块时
+    # 字典推导"后行覆盖前行"把融合分记到该键最后一个块上（源码文件全块同键，
+    # 向量分系统性锚在文件尾）——父块扩展以行号定窗，错块会被放大成整段错误上下文
+    for rank, h in enumerate(vec_hits, 1):
+        idx = h["idx"]
+        if 0 <= idx < len(chunks):  # hybrid 与 vector 两读之间并发重建换序的窄窗：越界跳过不崩
             rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (60 + rank)
 
     # 权威性加权：知识库结构语义（现行>归档）作为可解释的分数乘数
@@ -107,5 +103,5 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list
     out = []
     for idx, score in top:
         c = chunks[idx]
-        out.append({**c, "score": round(score, 4)})
+        out.append({**c, "score": round(score, 4), "idx": idx})  # idx 供父块扩展定位
     return out

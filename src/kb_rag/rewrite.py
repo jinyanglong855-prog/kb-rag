@@ -105,19 +105,21 @@ def fused_query(question: str, k: int = 8, pool: int = 50) -> list[dict]:
     """多路改写检索 + RRF 融合（×权威乘数）。返回融合后 top-k，字段同 hybrid_query。
 
     每路取 k_deep 深候选再融合，避免单路截断丢掉融合时有竞争力的块；
-    改写不可用（关开关/无 key/API 失败）时退化为原问题单路，行为≈hybrid_query。
+    按块行号（idx）键控而非 path#heading——同键多块时"后写覆盖"会把整节
+    融合分塌缩到最后一块上；改写不可用（关开关/无 key/API 失败）时退化为
+    原问题单路，行为≈hybrid_query。
     """
     routes = [question] + rewrite_variants(question)
     hyde = hyde_document(question)
     if hyde:
         routes.append(hyde)
     k_deep = max(k, 12)
-    rrf: dict[str, float] = {}
-    chunks_by_key: dict[str, dict] = {}
+    rrf: dict[int, float] = {}
+    chunks_by_idx: dict[int, dict] = {}
     for route in routes:
         for rank, h in enumerate(hybrid_query(route, k=k_deep, vector_candidates=pool), 1):
-            key = h["path"] + "#" + h["heading"]
-            chunks_by_key[key] = h
-            rrf[key] = rrf.get(key, 0.0) + (1.0 / (60 + rank)) * authority_multiplier(h["path"])
+            chunks_by_idx[h["idx"]] = h
+            rrf[h["idx"]] = rrf.get(h["idx"], 0.0) + \
+                (1.0 / (60 + rank)) * authority_multiplier(h["path"])
     top = sorted(rrf.items(), key=lambda x: -x[1])[:k]
-    return [{**chunks_by_key[key], "score": round(s, 6)} for key, s in top]
+    return [{**chunks_by_idx[idx], "score": round(s, 6)} for idx, s in top]
