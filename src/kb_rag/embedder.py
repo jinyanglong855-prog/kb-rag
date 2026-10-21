@@ -1,35 +1,143 @@
-"""嵌入层：fastembed 本地 ONNX 推理，零 API 成本。
+"""嵌入层：可插拔后端，同一接口切本地/API。
 
-threads=8（2026-10-17 实测更新）：Qwen3-Embedding-0.6B-Q 在 8 线程下三个
-独立进程的查询向量逐位一致（旧 bge-small-zh 时代多线程跨进程有浮点差、
-93k 近重复语料放大成排名翻转，才钉死单线程；换模型后以新实测为准）。
-单线程在本模型要 3.7s/条、全库重建 95 小时，不可行；8 线程 0.1s/条、
-重建 2.7 小时。若未来再现实测不稳，EMBED_THREADS=1 可回退。
+- fastembed：本地 ONNX，零出域（默认）。threads=8（2026-10-17 实测 Qwen3-0.6B
+  三进程查询向量逐位一致；旧 bge 时代多线程跨进程有浮点差才钉单线程，EMBED_THREADS=1
+  可回退）；batch_size=4 钉死——Qwen3 是解码器架构，fastembed 默认批 256 在
+  真实长块上单次推理 RSS ~7.9GB 被 macOS jetsam 杀，批 4 峰值 3.4GB 且反而最快。
+  全库重建吞吐实测 ~1.8 块/s ≈ 1230 字符/s → 9.3 万块约 17-20 小时（须走
+  indexer 的分段续传）；日常增量 500 块 ≈ 6 分钟。
+- openai：任意 OpenAI 兼容 /v1/embeddings（百炼 compatible-mode、硅基流动、
+  llama-server、Ollama、vLLM），企业落地按隐私边界选服务商或自托管。
 
-⚠️ 重建时长勘误（2026-10-21 干净复测 3072 块）：上段"0.1s/条、2.7 小时"
-是短样本外推的失实值。实测稳定 ~1.8 块/s ≈ 1230 字符/s；全库 7810 万字符
-（+路径标题前缀 ≈ 8600 万）折算 **约 17-20 小时**，须用 work/embed_resume.py
-断点续传跑。日常增量不受影响（500 块 ≈ 6 分钟）。旧 bge-small-zh 的
-"约 12 分钟"量级不可比（模型小 10 倍 + 512 token 截断）。
+文档侧与查询侧不对称是设计：文档永远裸文本（含路径标题前缀，见 indexer），
+查询可加指令前缀（EMBED_QUERY_INSTRUCT）。向量空间由 embed_identity() 唯一
+标识，索引 meta 记录它，换后端/模型/维度/指令任一项都是另一个空间。
 """
 
 import os
 from functools import lru_cache
 
-from fastembed import TextEmbedding
+import numpy as np
 
-from .config import EMBED_MODEL
+from .config import (EMBED_API_BASE, EMBED_API_BATCH, EMBED_API_KEY, EMBED_BACKEND,
+                     EMBED_DIMS, EMBED_MODEL, EMBED_QUERY_INSTRUCT)
+
+# 文档侧输入格式的版本标签：改 indexer.embed_input 的拼法必须同步改它（空间随之变化）。
+# 字面值沿用旧 meta.json 的 doc_prefix 取值，现役索引无需重建即可被新引擎接管。
+DOC_PREFIX_VERSION = "path+heading"
+
+
+class FastEmbedBackend:
+    kind = "fastembed"
+    # ONNX arena 随进程内累计处理量增长（8000 块段实测峰值 6GB），多段任务须换进程
+    isolate_segments = True
+
+    def __init__(self, model: str):
+        self.model = model
+        self.dims = None
+        self._engine = None
+
+    def _get(self):
+        if self._engine is None:
+            from fastembed import TextEmbedding
+
+            threads = int(os.environ.get("EMBED_THREADS", "8"))
+            self._engine = TextEmbedding(model_name=self.model, threads=threads)
+        return self._engine
+
+    @property
+    def dim(self) -> int:
+        from fastembed import TextEmbedding
+
+        for d in TextEmbedding.list_supported_models():
+            if d["model"] == self.model:
+                return int(d["dim"])
+        return len(self.embed_documents(["dim probe"])[0])
+
+    def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
+        return list(self._get().embed(texts, batch_size=4))
+
+
+class OpenAICompatBackend:
+    kind = "openai"
+    isolate_segments = False  # 推理在远端，本进程无内存累积
+
+    def __init__(self, base_url: str, api_key: str, model: str, batch: int, dims: int | None):
+        if not base_url:
+            raise ValueError("EMBED_BACKEND=openai 需要 EMBED_API_BASE（如 https://dashscope.aliyuncs.com/compatible-mode/v1）")
+        self.base_url, self.api_key, self.model, self.batch, self.dims = base_url, api_key, model, batch, dims
+        self._client = None
+        self._dim: int | None = None
+
+    def _get(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            # 本地 llama-server/Ollama 不校验 key，但客户端要求非空
+            self._client = OpenAI(base_url=self.base_url, api_key=self.api_key or "none",
+                                  timeout=600, max_retries=2)
+        return self._client
+
+    @property
+    def dim(self) -> int:
+        if self._dim is None:  # 探测结果缓存在实例上：未设 EMBED_DIMS 时不能每次查询多打一次 API
+            self._dim = self.dims or len(self.embed_documents(["dim probe"])[0])
+        return self._dim
+
+    def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
+        out: list[np.ndarray] = []
+        for i in range(0, len(texts), self.batch):
+            kw: dict = {"model": self.model, "input": texts[i:i + self.batch]}
+            if self.dims:
+                kw["dimensions"] = self.dims
+            resp = self._get().embeddings.create(**kw)
+            got = sorted(resp.data, key=lambda d: d.index)
+            if len(got) != len(kw["input"]):
+                # 异构服务端静默丢条目会让后续所有行错位——整批零向量/错配，必须响
+                raise RuntimeError(f"嵌入服务返回条数不符：请求 {len(kw['input'])} 条，返回 {len(got)} 条"
+                                   f"（{self.base_url} / {self.model}）")
+            out.extend(np.asarray(d.embedding, dtype=np.float32) for d in got)
+        return out
 
 
 @lru_cache(maxsize=1)
-def get_model() -> TextEmbedding:
-    threads = int(os.environ.get("EMBED_THREADS", "8"))
-    return TextEmbedding(model_name=EMBED_MODEL, threads=threads)
+def get_backend():
+    if EMBED_BACKEND == "fastembed":
+        if EMBED_DIMS:
+            raise ValueError("EMBED_DIMS 仅 openai 后端支持（API 侧 MRL 截断）；fastembed 本地模型维度固定，"
+                             "设了也会被静默忽略，故显式拒绝")
+        return FastEmbedBackend(EMBED_MODEL)
+    if EMBED_BACKEND == "openai":
+        return OpenAICompatBackend(EMBED_API_BASE, EMBED_API_KEY, EMBED_MODEL, EMBED_API_BATCH, EMBED_DIMS)
+    raise ValueError(f"未知 EMBED_BACKEND={EMBED_BACKEND!r}（可选 fastembed / openai）")
 
 
-def embed(texts: list[str]) -> list[list[float]]:
-    # batch_size=4（2026-10-17 实测，真实语料块最长 1195 字）：Qwen3 是解码器
-    # 架构，fastembed 默认批 256 在长文本下 ONNX 单次推理就把 RSS 顶到 ~7.9GB
-    # 被 macOS jetsam 杀（重建三次 EXIT=137 的真凶）；批 16 更糟（9.6GB）。
-    # 批 4 峰值 3.4GB 且反而最快（3 条/s vs 默认 1 条/s），内存速度双优。
-    return list(get_model().embed(texts, batch_size=4))
+def doc_identity() -> str:
+    """文档侧向量空间指纹（缓存键）：文档向量与查询侧指令无关，不含 inst/raw 位——
+    切换 EMBED_QUERY_INSTRUCT 调试查询侧时，全部文档向量缓存照常复用。"""
+    b = get_backend()
+    dims = f"@{b.dims}" if b.dims else ""
+    return f"{b.kind}:{b.model}{dims}:{DOC_PREFIX_VERSION}"
+
+
+def embed_identity() -> str:
+    """完整空间指纹（门禁键）= doc_identity + 查询侧指令位。
+    索引 meta 存它，查询/增量前比对——不一致即查询两侧不同空间，禁止检索。"""
+    q = "inst" if EMBED_QUERY_INSTRUCT else "raw"
+    return f"{doc_identity()}:{q}"
+
+
+def embed(texts: list[str]) -> list[np.ndarray]:
+    """文档侧嵌入（裸文本）。"""
+    return get_backend().embed_documents(texts)
+
+
+def embed_queries(texts: list[str]) -> list[np.ndarray]:
+    """查询侧嵌入：按配置加指令前缀；用 replace 不用 format，问题里的花括号不触发占位解析。"""
+    if EMBED_QUERY_INSTRUCT:
+        texts = [EMBED_QUERY_INSTRUCT.replace("{q}", t) for t in texts]
+    return get_backend().embed_documents(texts)
+
+
+def embed_dim() -> int:
+    return get_backend().dim

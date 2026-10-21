@@ -69,6 +69,15 @@ def hybrid_query(question: str, k: int = 5, vector_candidates: int = 50) -> list
     加深池只加宽召回，精排仍只对返回的 k 条算分，查询成本不变。
     """
     chunks = _load_chunks()
+    # BM25 与块的行号必须同源：落盘与 BM25 重建之间的窗口里，旧行号映射会错配
+    # （复验 P2-2）——计数不一致（或 BM25 尚未建过）时降级纯向量路，慢但正确
+    bm25_meta_path = Path(INDEX_DIR) / "bm25_meta.json"
+    bm25_count = json.loads(bm25_meta_path.read_text(encoding="utf-8")).get("count") \
+        if bm25_meta_path.exists() else None
+    if bm25_count != len(chunks):
+        print(f"[hybrid] BM25 计数({bm25_count})与块数({len(chunks)})不一致，"
+              "本轮降级纯向量检索（跑 kb-rag index --bm25 恢复混合）", file=sys.stderr)
+        return vector_query(question, k=k)
     # 候选数不超过语料规模（bm25s 对 k > corpus 抛错；tiny 语料/单测场景触发）
     vector_candidates = min(vector_candidates, len(chunks))
 

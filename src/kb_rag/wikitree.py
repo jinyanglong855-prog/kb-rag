@@ -15,6 +15,7 @@
 import hashlib
 import json
 import re
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -22,8 +23,8 @@ from pathlib import Path
 import numpy as np
 
 from .config import INDEX_DIR, validate_kb_path
-from .embedder import embed
-
+from .embedder import embed, embed_identity, embed_queries
+from .indexer import _legacy_identity_ok, _read_meta
 MAX_SUMMARY_INPUT = 3000  # 送 LLM 的目录资料上限（字符）
 FILE_TEXT_CHARS = 4000  # 命中节点后带入问答上下文的状态文件上限
 TREE_JSON = "wikitree.json"
@@ -206,31 +207,46 @@ def build_wiki(use_llm: bool = True) -> int:
     vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-10)
 
     INDEX_DIR.mkdir(exist_ok=True)
-    tree_path.write_text(json.dumps({"nodes": [asdict(n) for n in nodes]}, ensure_ascii=False, indent=1), encoding="utf-8")
+    # 摘要树向量绑定当前空间指纹：换嵌入配置后 wiki_query 靠它让路，避免跨空间乱配
+    tree_path.write_text(json.dumps({"identity": embed_identity(),
+                                     "nodes": [asdict(n) for n in nodes]},
+                                    ensure_ascii=False, indent=1), encoding="utf-8")
     np.save(INDEX_DIR / TREE_VECTORS, vectors)
     print(f"Wiki 摘要树完成: {len(nodes)} 节点 / LLM 摘要 {llm_used} 个（其余缓存或规则回退）/ {time.time() - t0:.1f}s")
     return len(nodes)
 
 
-def _load() -> tuple[list[WikiNode], "np.ndarray"]:
-    """读摘要树；缺文件/向量时返回空树（wiki_query 自然无命中）而非裸崩——
-    add 自动全量路径之外的残缺索引不该让 ask 直接 FileNotFoundError。"""
+def _load() -> tuple[list[WikiNode], "np.ndarray", str]:
+    """读摘要树，返回 (nodes, vectors, identity)；缺文件/向量时返回空树（wiki_query 自然无命中）
+    而非裸崩——残缺索引不该让 ask 直接 FileNotFoundError。"""
     tree_path = Path(INDEX_DIR) / TREE_JSON
     vec_path = Path(INDEX_DIR) / TREE_VECTORS
     if not tree_path.exists() or not vec_path.exists():
-        return [], np.zeros((0, 1), dtype=np.float32)
+        return [], np.zeros((0, 1), dtype=np.float32), ""
     data = json.loads(tree_path.read_text(encoding="utf-8"))
     nodes = [WikiNode(**n) for n in data["nodes"]]
-    return nodes, np.load(vec_path)
+    return nodes, np.load(vec_path), data.get("identity", "")
 
 
 def wiki_query(question: str, k: int = 3) -> list[dict]:
     """问题→目录节点：节点摘要余弦检索；命中后现读整份状态文件作上下文。"""
     root = validate_kb_path()
-    nodes, vectors = _load()
+    nodes, vectors, tree_identity = _load()
     if not nodes:
         return []  # 摘要树缺失（残缺索引）：结构层让路，不阻塞块检索路径
-    q = np.array(embed([question])[0], dtype=np.float32)
+    if tree_identity:
+        tree_ok = tree_identity == embed_identity()
+    else:
+        # 无指纹的旧版摘要树（现役生产形态）：它与主索引同代（index 命令一起重建），
+        # 按主索引的旧版判定走——当前配置若已换代，让路而非静默跨空间（审查 P1-1）
+        tree_ok = _legacy_identity_ok(_read_meta() or {})
+    if not tree_ok:
+        # 摘要树是旧向量空间（换嵌入配置后未重建）：结构层让路而非跨空间乱配，
+        # 块检索路径不受影响；重跑 index --wiki 恢复
+        print(f"[wikitree] 摘要树空间 [{tree_identity or '<旧版无指纹>'}] 与当前配置不一致，"
+              "结构层本轮让路（重跑 uv run kb-rag index --wiki 修复）", file=sys.stderr)
+        return []
+    q = np.array(embed_queries([question])[0], dtype=np.float32)
     q /= max(np.linalg.norm(q), 1e-10)
     scores = vectors @ q
     out = []
@@ -247,7 +263,7 @@ def wiki_query(question: str, k: int = 3) -> list[dict]:
 
 
 def show_tree() -> None:
-    nodes, _ = _load()
+    nodes, _, _ = _load()
     for n in sorted(nodes, key=lambda x: x.path.count("/")):
         print(f"\n== {n.path or '（根）'} [{n.summary_kind}] -> {n.status_file or '无状态文件'}")
         print(f"   {n.summary[:120]}")

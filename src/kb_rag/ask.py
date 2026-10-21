@@ -90,19 +90,40 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
     restricted = "*" not in allowed
     log_read(caller, "ask", {"question": question, "k": k})  # 查询审计：问答是最常用的读通道，不能无痕
 
-    # L2 新鲜度兜底：索引缺失/过期先补齐再回答，保证引用反映库内当前内容。
-    # 受限角色跳过自动补齐——只读角色一次提问不该有能力触发 93k 块全量重嵌（资源型 DoS 面）
+    # L2 新鲜度兜底：索引过期先增量补齐再回答，保证引用反映库内当前内容。
+    # 受限角色跳过自动补齐——只读角色一次提问不该有能力触发全量重嵌（资源型 DoS 面）。
+    # 索引缺失不再自动全量构建：换模型后全库重建是小时级任务，问答路径里静默跑会像卡死，
+    # 改为给出明确指令（kb-rag index 可断点续传，中断后重跑同一命令接着算）。
     notice = ""
     st = staleness()
+    if st["mode"] == "missing":
+        return ("索引不存在：请先运行 uv run kb-rag index 建立索引"
+                "（全量构建耗时较长，可断点续传）。")
     if st["mode"] != "clean" and not restricted:
-        r = sync_incremental()
-        if r["mode"] == "full":
-            notice = "⚠ 索引缺失，已自动全量构建后回答。\n\n"
+        from .indexer import IndexNotQueryable
+
+        try:
+            r = sync_incremental()
+        except IndexNotQueryable as e:  # 错位索引：拒绝原因作为回答，不裸崩
+            return str(e)
+        if r["mode"] == "mismatch":
+            return (f"向量空间不一致，无法回答：索引由 [{r['index_identity']}] 生成，"
+                    f"当前嵌入配置是 [{r['config_identity']}]。"
+                    "请先运行 uv run kb-rag index 全量重建，或恢复 .env 的 EMBED_* 配置。")
+        if r["mode"] == "locked":
+            notice = f"⚠ 另一进程（{r['holder']}）正在重建索引，本次按现有索引回答。\n\n"
         elif r["mode"] == "delta":
             notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
                       f"已自动增量入库（+{r['added']} 块 / {r['seconds']:.1f}s）后回答。\n\n")
     elif st["mode"] != "clean":
         notice = "⚠ 索引可能过期（受限角色不触发自动重建，请联系管理员跑 kb-rag add）。\n\n"
+
+    from .indexer import IndexNotQueryable, ensure_queryable
+
+    try:
+        ensure_queryable()  # 空间门禁：配置变了但文件没变时 staleness 探不到，这里兜住
+    except IndexNotQueryable as e:  # 拒绝原因作为回答返回：CLI/MCP 两侧都不裸崩
+        return str(e)
 
     is_status = _is_status_question(question)
     alias_srcs = _alias_sources(question, is_status)

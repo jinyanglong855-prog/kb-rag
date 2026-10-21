@@ -10,12 +10,15 @@
 import asyncio
 import hashlib
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 from .config import INDEX_DIR, KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, validate_kb_path
+from .embedder import embed_identity
+from .indexer import IndexNotQueryable, _legacy_identity_ok, _read_meta
 from .loader import SKIP_DIRS, load_text_files
 
 GRAPH_HISTORY_SKIP = {
@@ -48,13 +51,35 @@ def _meta_path() -> Path:
     return Path(INDEX_DIR) / META_JSON
 
 
-def _load_meta() -> dict[str, str]:
+def _load_meta() -> dict:
+    """返回 {"files": {rel: hash}, "embed": 空间指纹或 None}；旧格式（平铺 rel→hash）自动兼容。"""
     f = _meta_path()
-    return json.loads(f.read_text()) if f.exists() else {}
+    raw = json.loads(f.read_text()) if f.exists() else {}
+    if "files" in raw:
+        return raw
+    return {"files": raw, "embed": None}
 
 
-def _save_meta(hashes: dict[str, str]) -> None:
-    _meta_path().write_text(json.dumps(hashes, ensure_ascii=False, indent=1))
+def _save_meta(files: dict[str, str], embed: str) -> None:
+    _meta_path().write_text(json.dumps({"files": files, "embed": embed},
+                                       ensure_ascii=False, indent=1))
+
+
+def _gate_graph(can_rebuild: bool) -> str:
+    """图向量空间门禁（审查 P1-3）：图库与当前嵌入配置不同空间时拒绝——
+    否则增量建图会把新维度向量灌进旧维度图库，图库报废只能手删。"""
+    stored = _load_meta().get("embed")
+    cur = embed_identity()
+    if stored == cur:
+        return cur
+    # 无指纹的旧图（bge 时代）+ 当前仍是旧默认配置：视为同代放行
+    if stored is None and _legacy_identity_ok(_read_meta() or {}):
+        return cur
+    act = "重跑 uv run kb-rag graph-build --full 全量重建图库" if can_rebuild else \
+        "先 uv run kb-rag graph-build --full 全量重建图库"
+    raise IndexNotQueryable(
+        f"图库空间 [{stored or '<旧版无指纹>'}] 与当前嵌入配置 [{cur}] 不一致：拒绝操作。{act}，"
+        "或把 .env 的 EMBED_* 配置改回原样。")
 
 
 async def _make_rag(no_llm: bool = False):
@@ -62,7 +87,7 @@ async def _make_rag(no_llm: bool = False):
     from lightrag.base import EmbeddingFunc
     from lightrag.llm.openai import openai_complete_if_cache
 
-    from .embedder import embed
+    from .embedder import embed, embed_dim
 
     async def llm_func(prompt, system_prompt=None, history_messages=None, **kwargs):
         if no_llm:
@@ -84,7 +109,8 @@ async def _make_rag(no_llm: bool = False):
         working_dir=str(Path(INDEX_DIR) / "lightrag"),
         llm_model_func=llm_func,
         llm_model_max_async=8,
-        embedding_func=EmbeddingFunc(embedding_dim=512, func=embed_func),
+        # 维度随当前嵌入后端取：此前写死 512（bge），换 Qwen3（1024）后建图必炸
+        embedding_func=EmbeddingFunc(embedding_dim=embed_dim(), func=embed_func),
     )
     await rag.initialize_storages()
     return rag
@@ -102,7 +128,15 @@ def _is_graph(rel: str) -> bool:
 def build_graph(full: bool = False, scope: str | None = None) -> dict:
     """增量建图：变更文件删旧插新，删除文件只删。scope 指定相对路径前缀则只处理该子树。"""
     validate_kb_path()
-    old = {} if full else _load_meta()
+    stored = _load_meta().get("embed")
+    if full:
+        # 换空间全量重建：旧维度图库整体作废——LightRAG 按 upsert 合并，混维灌入只会废掉库
+        if stored != embed_identity() and (Path(INDEX_DIR) / "lightrag").exists():
+            shutil.rmtree(Path(INDEX_DIR) / "lightrag")
+        gate = embed_identity()
+    else:
+        gate = _gate_graph(can_rebuild=True)
+    old = {} if full else _load_meta()["files"]
     new = _scan_hashes(KB_PATH)
     if scope:
         new = {r: h for r, h in new.items() if r.startswith(scope)}
@@ -131,7 +165,7 @@ def build_graph(full: bool = False, scope: str | None = None) -> dict:
             await rag.finalize_storages()
 
         merged = {**{r: h for r, h in old.items() if r not in removed}, **new}
-        _save_meta(merged)
+        _save_meta(merged, gate)
         return {
             "added": len(added), "removed": len(removed),
             "total": len(merged), "seconds": (datetime.now() - t0).total_seconds(),
@@ -143,6 +177,7 @@ def build_graph(full: bool = False, scope: str | None = None) -> dict:
 def query_graph(question: str, mode: str = "mix") -> str:
     """图检索问答：mix=local+global+naive 融合（LightRAG 默认，效果通常最佳）。"""
     validate_kb_path()
+    _gate_graph(can_rebuild=False)  # 查询向量也要与图库同空间（agent 工具链可达此处）
 
     async def run() -> str:
         from lightrag import QueryParam

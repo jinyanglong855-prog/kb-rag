@@ -18,6 +18,19 @@ INDEX_DIR = Path(_raw_index_dir) if Path(_raw_index_dir).is_absolute() else REPO
 # 临时顶回 bge：Qwen3 重建尚未完成，index/ 里是 bge 备份，查询向量必须同空间。
 # 新索引 finalize 后改回 "Qwen/Qwen3-Embedding-0.6B-Q"（2026-10-20）
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+# 嵌入后端：fastembed=本地 ONNX（零出域，默认）；openai=任意 OpenAI 兼容 HTTP 接口
+# （百炼/硅基流动/llama-server/Ollama/vLLM 同一套代码）。企业落地按隐私边界选，
+# 换后端=换向量空间，索引必须整体重建（indexer 的一致性门禁会拦住静默混用）。
+EMBED_BACKEND = os.environ.get("EMBED_BACKEND", "fastembed")
+EMBED_API_BASE = os.environ.get("EMBED_API_BASE", "")
+EMBED_API_KEY = os.environ.get("EMBED_API_KEY", "")
+EMBED_API_BATCH = int(os.environ.get("EMBED_API_BATCH", "10"))  # 百炼 v4 单请求上限 10 条
+EMBED_DIMS = int(os.environ.get("EMBED_DIMS", "0")) or None  # API 侧截断维度（MRL），0=模型默认
+# 查询侧指令前缀（文档侧永远裸文本）。考卷实测：Qwen3 4B/8B 加指令 +9 分，0.6B 反降，
+# 故默认空；用 {q} 占位，如 "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:{q}"
+EMBED_QUERY_INSTRUCT = os.environ.get("EMBED_QUERY_INSTRUCT", "")
+# 全量/增量嵌入的断点粒度（块）：每段落盘一次，进程被杀最多重做一段
+EMBED_SEGMENT = int(os.environ.get("EMBED_SEGMENT", "4000"))
 CHUNK_SIZE = int(os.environ.get("CHUNK_SIZE", "1200"))
 RERANK_MODEL = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-base")
 LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY", "")
