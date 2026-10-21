@@ -22,9 +22,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import INDEX_DIR, validate_kb_path
+from .config import EMBED_DIMS, EMBED_MODEL, EMBED_QUERY_INSTRUCT, INDEX_DIR, validate_kb_path
 from .embedder import embed, embed_identity, embed_queries
-from .indexer import _legacy_identity_ok, _read_meta
+from .indexer import _legacy_identity_ok, _read_meta, get_backend
 MAX_SUMMARY_INPUT = 3000  # 送 LLM 的目录资料上限（字符）
 FILE_TEXT_CHARS = 4000  # 命中节点后带入问答上下文的状态文件上限
 TREE_JSON = "wikitree.json"
@@ -228,6 +228,17 @@ def _load() -> tuple[list[WikiNode], "np.ndarray", str]:
     return nodes, np.load(vec_path), data.get("identity", "")
 
 
+def _bare_legacy_tree_ok(vectors: "np.ndarray") -> bool:
+    """裸代摘要树（无 identity 字段，= 现役生产形态）的**查询侧**接管：历史上只发布过
+    bge-small-zh 一代裸树，查询向量空间可由「历史模型 + 树向量维度自证」唯一确定，
+    与主索引 _bare_legacy_queryable 同语义（12 题评测抓漏：缺此分支时生产 status 路由
+    整层哑火 0/3）。文档侧格式无证，重建仍由 index --wiki 带指纹重写。"""
+    if not (get_backend().kind == "fastembed" and not EMBED_QUERY_INSTRUCT and not EMBED_DIMS
+            and EMBED_MODEL == "BAAI/bge-small-zh-v1.5"):
+        return False
+    return vectors.ndim == 2 and vectors.shape[0] > 0 and vectors.shape[1] == get_backend().dim
+
+
 def wiki_query(question: str, k: int = 3) -> list[dict]:
     """问题→目录节点：节点摘要余弦检索；命中后现读整份状态文件作上下文。"""
     root = validate_kb_path()
@@ -237,9 +248,11 @@ def wiki_query(question: str, k: int = 3) -> list[dict]:
     if tree_identity:
         tree_ok = tree_identity == embed_identity()
     else:
-        # 无指纹的旧版摘要树（现役生产形态）：它与主索引同代（index 命令一起重建），
-        # 按主索引的旧版判定走——当前配置若已换代，让路而非静默跨空间（审查 P1-1）
-        tree_ok = _legacy_identity_ok(_read_meta() or {})
+        # 无指纹的旧版摘要树：与主索引同代（index 命令一起重建）。放行条件对齐主
+        # 索引的接管分层——中代自述逐项比对，裸代仅查询侧（当前配置若已换代，让路
+        # 而非静默跨空间）
+        meta = _read_meta() or {}
+        tree_ok = _legacy_identity_ok(meta) or _bare_legacy_tree_ok(vectors)
     if not tree_ok:
         # 摘要树是旧向量空间（换嵌入配置后未重建）：结构层让路而非跨空间乱配，
         # 块检索路径不受影响；重跑 index --wiki 恢复

@@ -30,7 +30,8 @@ def query(question: str, k: int = 5) -> list[dict]:
     q = np.array(embed_queries([question])[0], dtype=np.float32)
     q /= max(np.linalg.norm(q), 1e-10)
     scores = vectors @ q
-    return [{**chunks[i], "score": round(float(scores[i]), 4)}
+    # idx=块在索引中的行号：父块扩展（parents.expand）靠它定位兄弟块
+    return [{**chunks[i], "score": round(float(scores[i]), 4), "idx": int(i)}
             for i in np.argsort(-scores)[:k]]
 
 

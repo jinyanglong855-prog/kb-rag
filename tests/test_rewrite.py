@@ -36,10 +36,11 @@ def test_fused_query_rrf_with_authority(monkeypatch):
 
     def fake_hybrid(route, k, vector_candidates):
         if route == "原问题":  # 仅示意：两路返回同一批候选、排名不同
-            order = ["a/项目状态/STATUS.md", "b/工作日志/x.md"]
+            order = [("a/项目状态/STATUS.md", 0), ("b/工作日志/x.md", 1)]
         else:
-            order = ["b/工作日志/x.md", "a/项目状态/STATUS.md"]
-        return [{"path": p, "heading": "h", "text": "t", "score": 1.0} for p in order]
+            order = [("b/工作日志/x.md", 1), ("a/项目状态/STATUS.md", 0)]
+        return [{"path": p, "heading": "h", "text": "t", "score": 1.0, "idx": i}
+                for p, i in order]
 
     monkeypatch.setattr(rw, "hybrid_query", fake_hybrid)
     fused = rw.fused_query("原问题", k=2)

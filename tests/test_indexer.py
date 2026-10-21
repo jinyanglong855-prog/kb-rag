@@ -198,6 +198,35 @@ def test_bare_legacy_meta_query_only(env, monkeypatch):
     assert r["mode"] == "mismatch"  # 文档格式无证：增量拒绝
 
 
+def test_bare_legacy_wiki_tree_query_only(env, monkeypatch):
+    """裸代摘要树（无 identity 字段，= 现役生产形态）：查询侧接管放行——
+    12 题评测抓漏：缺此分支时生产 status 路由整层哑火（wiki_query 恒空 → 0/3）。"""
+    import kb_rag.wikitree as wt
+
+    monkeypatch.setattr(wt, "INDEX_DIR", env.idx)
+    monkeypatch.setattr(wt, "embed_queries",
+                        lambda qs: [np.ones(8, dtype=np.float32) for _ in qs])
+    monkeypatch.setattr(wt, "get_backend", lambda: env.fake)
+    monkeypatch.setattr(wt, "EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+    env.fake.kind = "fastembed"  # 历史形态只有 fastembed 一代
+    _write(env.kb, "STATUS.md", "# 总状态\n\n一切正常。\n")
+    indexer.rebuild("full")
+    (env.idx / "meta.json").write_text(json.dumps(
+        {"hashes": json.loads((env.idx / "meta.json").read_text())["hashes"]}))
+    # 模拟裸代树：nodes 无 identity 字段、树向量 dim=8 与后端自证一致
+    (env.idx / "wikitree.json").write_text(json.dumps({"nodes": [
+        {"path": "", "title": "总库", "summary": "总状态", "status_file": "STATUS.md",
+         "children": [], "summary_kind": "rule", "fingerprint": ""}]},
+        ensure_ascii=False), encoding="utf-8")
+    np.save(env.idx / "wiki_vectors.npy", np.ones((1, 8), dtype=np.float32))
+    out = wt.wiki_query("总库现在怎么样", k=3)
+    assert out and out[0]["status_file"] == "STATUS.md"
+    # 换代后拒绝：配置模型不同即让路，不跨空间乱配
+    monkeypatch.setattr(wt, "EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B-Q")
+    monkeypatch.setattr(indexer, "EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B-Q")
+    assert wt.wiki_query("总库现在怎么样", k=3) == []
+
+
 def test_save_residue_blocks_query_and_self_heals(env, monkeypatch):
     """复验 P1-1：同块数落盘中断 meta 校验查不出，tmp 残件是唯一目击者——
     查询必须拒绝；重建入口把残件与旧索引一并隔离，重跑可自愈续传。"""

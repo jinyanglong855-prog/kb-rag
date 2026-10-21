@@ -20,7 +20,7 @@ from openai import OpenAI
 
 from . import rewrite, scopes
 from .aliases import resolve_aliases
-from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, PARENT_RETRIEVE
 from .hybrid import hybrid_query
 from .search import staleness, sync_incremental
 from .wikitree import FILE_TEXT_CHARS, wiki_query
@@ -144,7 +144,9 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
                 sources.append((f"{rel}（{w['title']}·状态页整文件）",
                                 f"节点摘要：{w['summary']}\n{w['file_text']}"))
                 added_rels.add(rel)
-    fetch = k * 3 if restricted else k
+    # 父子分块的同父块去重会合并命中：截断必须移到 expand 之后，否则 top-k 挤在
+    # 同一父块时其余名额被白白丢弃（跨文件证据丢失）；超量召回 ×3 回填名额
+    fetch = k * 3 if (restricted or PARENT_RETRIEVE) else k
     if rewrite.enabled():
         # 查询改写融合检索（Multi-Query + HyDE；SHA-1 缓存保证同问题同改写，
         # 检索逐位可复现）+ 精排——多路候选先融合再由交叉编码器择优
@@ -152,14 +154,22 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
 
         hits = [h for h in rewrite.fused_query(question, k=fetch)
                 if scopes.in_scope(h["path"], allowed)]
-        hits = rerank(question, hits)[:k]
+        hits = rerank(question, hits)
     else:
         hits = [h for h in hybrid_query(question, k=fetch)
-                if scopes.in_scope(h["path"], allowed)][:k]
+                if scopes.in_scope(h["path"], allowed)]
+    if PARENT_RETRIEVE and hits:
+        # 父子分块（small-to-big）：命中块膨胀为父块再进上下文，命中精确、回答带上下文
+        from .parents import expand
+
+        hits = expand(hits)
+    hits = hits[:k]
     if not hits and not sources:
         return notice + "知识库中没有检索到相关内容（或内容不在调用者的读范围内）。"
     for h in hits:
-        sources.append((f"{h['path']} #{h['heading']}", h["text"][:800]))
+        parent = h.get("parent")
+        label = f"{h['path']} #{h['heading']}" + ("（父块）" if parent else "")
+        sources.append((label, h["text"] if parent else h["text"][:800]))
 
     context = "\n\n".join(f"[{i}] 来源：{label}\n{text}" for i, (label, text) in enumerate(sources, 1))
     client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
