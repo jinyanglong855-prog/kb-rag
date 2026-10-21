@@ -27,6 +27,10 @@ TEXT_EXTS = {
 }
 MAX_FILE_CHARS = 200_000  # md 超限截断；非 md 超限整文件跳过
 MAX_NON_MD_BYTES = 100_000  # 非 md 源码/配置上限（vendor 压缩库远超此值）
+# 整目录排除（md 与非 md 都不收）：项目源码区=项目管理，由 git 与项目 README 承担，
+# 知识库只收知识沉淀（各项目的 项目状态/）。公司智能体仍在构建期、源码+上游文档
+# 近万个文件占全库 87%，完整入库拖垮重建与检索（2026-10-21 用户指示：单独拎出暂不入库）。
+EXCLUDED_SUBTREES = {"公司智能体/项目文件"}
 # 单块硬上限：一行超长文件（内嵌源码的字符串常量、压缩 JSON）段落和行都切不开，
 # 曾产出 42782 字块 → 嵌入一次 ~3 万 token 推理抢 8-10GB 被 jetsam 杀
 # （2026-10-19 段 72000-76000 七连死真凶）。6000 = 已嵌块实际最大 5765 之上，
@@ -57,6 +61,9 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
         suffix = p.suffix.lower()
         if suffix not in TEXT_EXTS:
             continue
+        rel_posix = p.relative_to(root).as_posix()
+        if any(rel_posix == t or rel_posix.startswith(t + "/") for t in EXCLUDED_SUBTREES):
+            continue
         rel_parts = p.relative_to(root).parts
         if any(part in SKIP_DIRS or part.startswith(".") for part in rel_parts):
             continue
@@ -69,7 +76,7 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
                 continue
             if p.stat().st_size > MAX_NON_MD_BYTES:
                 continue
-        out.append((p, p.relative_to(root).as_posix()))
+        out.append((p, rel_posix))
     return out
 
 

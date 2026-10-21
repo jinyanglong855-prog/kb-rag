@@ -107,10 +107,13 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
         except IndexNotQueryable as e:  # 错位索引：拒绝原因作为回答，不裸崩
             return str(e)
         if r["mode"] == "mismatch":
-            return (f"向量空间不一致，无法回答：索引由 [{r['index_identity']}] 生成，"
-                    f"当前嵌入配置是 [{r['config_identity']}]。"
-                    "请先运行 uv run kb-rag index 全量重建，或恢复 .env 的 EMBED_* 配置。")
-        if r["mode"] == "locked":
+            # 增量被拒 ≠ 不能查：旧格式索引只许查询（文档侧格式无证，混格增量会污染库），
+            # 真正跨空间的情形由下方 ensure_queryable 拦截拒答。这里只提示过期并指引重建——
+            # 曾把它写成直接拒答，生产 ask 因索引一直过期而整体哑火（2026-10-21 教训）
+            notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件）但无法增量更新"
+                      f"（索引为 [{r['index_identity']}]，当前配置 [{r['config_identity']}]），"
+                      "本次按现有索引回答；运行 uv run kb-rag index 全量重建后恢复增量。\n\n")
+        elif r["mode"] == "locked":
             notice = f"⚠ 另一进程（{r['holder']}）正在重建索引，本次按现有索引回答。\n\n"
         elif r["mode"] == "delta":
             notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
