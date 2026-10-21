@@ -12,7 +12,8 @@ import chromadb
 import numpy as np
 
 from .config import INDEX_DIR
-from .embedder import embed
+from .embedder import embed_queries
+from .indexer import ensure_queryable
 
 
 STALE_MARKER = "chroma_stale"  # 增量入库后 Chroma 延迟同步的标记文件
@@ -57,11 +58,12 @@ def build_chroma() -> int:
 
 
 def chroma_query(question: str, k: int = 5) -> list[dict]:
+    ensure_queryable()  # 向量库副本与主索引同空间：主索引的门禁在这里同样适用
     if _is_stale():
         print("Chroma 索引已过期，先同步（一次性，约数分钟）……")
         build_chroma()
     col = _collection()
-    q = embed([question])[0]
+    q = embed_queries([question])[0]  # 查询侧：与主索引同一空间指纹（指令前缀按配置）
     res = col.query(query_embeddings=[q], n_results=k)
     out = []
     for i in range(len(res["ids"][0])):

@@ -1,6 +1,7 @@
 """CLI: uv run kb-rag index | add | query | ask | wiki | manifest | scopes | audit | write | serve"""
 
 import argparse
+import sys
 from pathlib import Path
 
 from .hybrid import build_bm25_index, hybrid_query
@@ -14,7 +15,9 @@ from .wikitree import build_wiki, show_tree, wiki_query
 def main() -> None:
     parser = argparse.ArgumentParser(prog="kb-rag")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    idx = sub.add_parser("index", help="全量重建索引（结构大改/首次/规则变更后）")
+    idx = sub.add_parser("index", help="全量重建索引（结构大改/首次/规则/嵌入配置变更后；可断点续传）")
+    idx.add_argument("--force", action="store_true",
+                     help="无视块缓存全部重嵌（默认按内容哈希复用同空间向量，只嵌缺失部分）")
     idx.add_argument("--bm25", action="store_true", help="仅重建 BM25 索引（复用已有向量块缓存）")
     idx.add_argument("--chroma", action="store_true", help="从向量缓存导入 Chroma 持久库")
     idx.add_argument("--wiki", action="store_true", help="仅重建 Wiki 摘要树（内容未变走缓存）")
@@ -100,7 +103,6 @@ def main() -> None:
         return
     if args.cmd == "write":
         import json
-        import sys
 
         from . import scopes
         from .writer import write_entry
@@ -136,33 +138,56 @@ def main() -> None:
         elif args.wiki:
             build_wiki()
         else:
-            build_index()
+            build_index(force=args.force)
             build_bm25_index()
             build_chroma()
             build_wiki()
         return
     if args.cmd == "add":
+        from .indexer import IndexNotQueryable
         from .search import sync_incremental
 
-        r = sync_incremental()
+        try:
+            r = sync_incremental()
+        except IndexNotQueryable as e:  # 错位索引上的 add：与 query 分支同样干净退出
+            print(str(e))
+            sys.exit(2)
+        if r["mode"] == "mismatch":
+            print(f"向量空间不一致：索引 [{r['index_identity']}] ≠ 当前配置 [{r['config_identity']}]。")
+            print("请运行 uv run kb-rag index 全量重建，或恢复 .env 的 EMBED_* 配置。")
+            sys.exit(2)  # 不静默触发小时级重建：换空间必须显式决策
+        if r["mode"] == "locked":
+            print(f"另一索引构建进行中（{r['holder']}）：本次增量未执行，稍后重跑 add 即可（幂等）。")
+            sys.exit(2)
         if r["mode"] == "clean":
             print(f"语料无变化，共 {r['total']} 块 / {r['seconds']:.1f}s")
             return
         if r["mode"] == "full":
-            print("首次增量：已自动执行全量索引（生成文件指纹缓存，此后 add 为秒级）")
+            print("索引缺失：已全量构建（中断后重跑 add 会接着算；此后 add 为秒级增量）")
             return
-        print(f"增量入库完成: +{r['added']} 块 / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
+        print(f"增量入库完成: +{r['added']} 块（复用 {r['reused']} / 新嵌 {r['embedded']}）"
+              f" / -{r['removed']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
         return
     if args.cmd == "graph-build":
         from .graph import build_graph
+        from .indexer import IndexNotQueryable
 
-        r = build_graph(full=args.full, scope=args.scope)
+        try:
+            r = build_graph(full=args.full, scope=args.scope)
+        except IndexNotQueryable as e:
+            print(str(e))
+            sys.exit(2)
         print(f"建图完成: +{r['added']} / -{r['removed']} 文件 / 图谱语料 {r['total']} 文件 / {r['seconds']:.1f}s")
         return
     if args.cmd == "graph":
         from .graph import query_graph
+        from .indexer import IndexNotQueryable
 
-        print(query_graph(args.question, args.mode))
+        try:
+            print(query_graph(args.question, args.mode))
+        except IndexNotQueryable as e:
+            print(str(e))
+            sys.exit(2)
         return
     if args.cmd == "graph-viz":
         from .graph import export_viz
@@ -171,8 +196,13 @@ def main() -> None:
         return
     if args.cmd == "agent":
         from .agent import agent
+        from .indexer import IndexNotQueryable
 
-        answer, trace = agent(args.question, args.max_steps)
+        try:
+            answer, trace = agent(args.question, args.max_steps)
+        except IndexNotQueryable as e:  # 门禁拒绝：干净信息而非裸堆栈
+            print(str(e))
+            sys.exit(2)
         if trace:
             print("== 工具轨迹 ==")
             for i, t in enumerate(trace, 1):
@@ -205,13 +235,25 @@ def main() -> None:
             print(f"  待处理: {rel}")
         return
     if args.cmd == "ingest":
+        from .indexer import IndexNotQueryable
         from .ingest import ingest_file
         from .search import sync_incremental
 
         out = ingest_file(args.file, args.target)
         print(f"已转换: {out}")
         if not args.no_index:
-            r = sync_incremental()
+            try:
+                r = sync_incremental()
+            except IndexNotQueryable as e:
+                print(f"文件已转换落入总库，但索引异常未能同步：{e}")
+                sys.exit(2)
+            if r["mode"] == "mismatch":  # 文件已入库但检索不到：失败不能伪装成"无变化"
+                print(f"向量空间不一致：索引 [{r['index_identity']}] ≠ 当前配置 [{r['config_identity']}]。")
+                print("文件已转换落入总库，但未建索引——请运行 uv run kb-rag index 全量重建后即可检索。")
+                sys.exit(2)
+            if r["mode"] == "locked":
+                print(f"另一索引构建进行中（{r['holder']}）：文件已入库，稍后重跑 add 补索引。")
+                sys.exit(2)
             if r["mode"] in ("delta", "full"):
                 print(f"增量入库完成: +{r['added']} 块 / 总 {r['total']} 块 / {r['seconds']:.1f}s")
             else:
@@ -221,17 +263,22 @@ def main() -> None:
         from . import scopes
         from .agent import _scoped
         from .audit import log_read
+        from .indexer import IndexNotQueryable
 
         caller = scopes.effective()
         allowed = scopes.resolve(caller, scopes.READ)
         log_read(caller, f"query:{args.mode}", args.question)
         fetch = args.k * 3 if "*" not in allowed else args.k  # 受限先超量召回，过滤后仍有 k 条配额
-        if args.mode == "hybrid":
-            hits = _scoped(hybrid_query(args.question, fetch), args.k, allowed)
-        elif args.mode == "chroma":
-            hits = _scoped(chroma_query(args.question, fetch), args.k, allowed)
-        else:
-            hits = _scoped(query(args.question, fetch), args.k, allowed)
+        try:
+            if args.mode == "hybrid":
+                hits = _scoped(hybrid_query(args.question, fetch), args.k, allowed)
+            elif args.mode == "chroma":
+                hits = _scoped(chroma_query(args.question, fetch), args.k, allowed)
+            else:
+                hits = _scoped(query(args.question, fetch), args.k, allowed)
+        except IndexNotQueryable as e:  # 空间门禁：CLI 给干净信息而非堆栈
+            print(str(e))
+            sys.exit(2)
         if args.rerank:
             hits = rerank(args.question, hits)[:args.k]
         label = {"vector": "vector(numpy)", "hybrid": "hybrid(BM25+向量 RRF)", "chroma": "chroma"}[args.mode]

@@ -46,24 +46,7 @@ def test_hybrid_default_candidate_pool_is_50():
     assert default == 50  # 20 池实测漏 2 个评测金标（35/50 池才进），降回须先过评测闸门
 
 
-def test_embed_normalized_keeps_positions(monkeypatch):
-    """向量必须落回原位置：错位会让整个索引无声地"向量 i ≠ 块 i"。"""
-    import numpy as np
-
-    import kb_rag.search as search_mod
-
-    def fake_embed(texts):
-        return [[float(len(t)), 1.0] for t in texts]  # 向量第一维 = 文本长度，可反查来源
-
-    monkeypatch.setattr(search_mod, "embed", fake_embed)
-    texts = ["aaaaa", "b", "ccc", "dddddddd", "ee"]  # 乱序长度 5,1,3,8,2
-    out = search_mod._embed_normalized(texts, batch=2)
-
-    # 位置 i 的向量来自 texts[i]（归一化前第一维等于长度）
-    recovered = out[:, 0] / out[:, 1]
-    assert np.allclose(recovered, [5, 1, 3, 8, 2])
-    assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
-    assert search_mod._embed_normalized([], batch=2).shape == (0, 1024)
+# test_embed_normalized_keeps_positions 已迁 tests/test_indexer.py（归一化引擎移入 indexer）
 
 
 def test_split_long_caps_oversized_single_line():
