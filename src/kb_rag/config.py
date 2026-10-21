@@ -15,9 +15,9 @@ KB_PATH = Path(os.environ.get("KB_PATH", ""))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _raw_index_dir = os.environ.get("INDEX_DIR", "index")
 INDEX_DIR = Path(_raw_index_dir) if Path(_raw_index_dir).is_absolute() else REPO_ROOT / _raw_index_dir
-# 临时顶回 bge：Qwen3 重建尚未完成，index/ 里是 bge 备份，查询向量必须同空间。
-# 新索引 finalize 后改回 "Qwen/Qwen3-Embedding-0.6B-Q"（2026-10-20）
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+# 嵌入模型（2026-10-21 换代完成）：Qwen3-Embedding-0.6B-Q 本地 ONNX。
+# 考卷实测 v@5：bge 40% → 0.6B 78%（8B+指令 87% 为天花板，API 路线经 EMBED_BACKEND=openai 可随时切换）
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "Qwen/Qwen3-Embedding-0.6B-Q")
 # 嵌入后端：fastembed=本地 ONNX（零出域，默认）；openai=任意 OpenAI 兼容 HTTP 接口
 # （百炼/硅基流动/llama-server/Ollama/vLLM 同一套代码）。企业落地按隐私边界选，
 # 换后端=换向量空间，索引必须整体重建（indexer 的一致性门禁会拦住静默混用）。
