@@ -25,6 +25,7 @@ import numpy as np
 from .config import EMBED_DIMS, EMBED_MODEL, EMBED_QUERY_INSTRUCT, INDEX_DIR, validate_kb_path
 from .embedder import embed, embed_identity, embed_queries
 from .indexer import _legacy_identity_ok, _read_meta, get_backend
+from .loader import EXCLUDED_SUBTREES
 MAX_SUMMARY_INPUT = 3000  # 送 LLM 的目录资料上限（字符）
 FILE_TEXT_CHARS = 4000  # 命中节点后带入问答上下文的状态文件上限
 TREE_JSON = "wikitree.json"
@@ -150,6 +151,8 @@ def _discover(root: Path) -> list[WikiNode]:
         if not depth1.is_dir() or depth1.name in skip or depth1.name.startswith(".") or depth1.name.startswith("_"):
             continue
         rel1 = depth1.name
+        if rel1 in EXCLUDED_SUBTREES:
+            continue  # 整体退出知识库的项目不建节点：状态类问题不该被路由到它
         n = WikiNode(path=rel1, title=rel1, summary="", status_file=None)
         project_status = _project_status_file(depth1)
         if project_status:
@@ -160,6 +163,8 @@ def _discover(root: Path) -> list[WikiNode]:
                 break
             for depth2 in sorted(depth1.iterdir()):
                 if not depth2.is_dir() or depth2.name.startswith(".") or depth2.name.startswith("_"):
+                    continue
+                if f"{rel1}/{depth2.name}" in EXCLUDED_SUBTREES:
                     continue
                 m = WikiNode(path=f"{rel1}/{depth2.name}", title=depth2.name, summary="", status_file=None)
                 for name in _status_files(depth2):

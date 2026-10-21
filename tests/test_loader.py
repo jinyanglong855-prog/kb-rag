@@ -31,3 +31,18 @@ def test_excluded_subtree_is_prefix_match_not_substring(tmp_path):
     _touch(tmp_path, "Shared/公司智能体/项目文件/b.md")
     rels = sorted(rel for _, rel in load_text_files(tmp_path))
     assert rels == ["Shared/公司智能体/项目文件/b.md", "公司智能体/项目文件2/a.md"]
+
+
+def test_excluded_whole_project_skips_corpus_and_wiki_node(tmp_path, monkeypatch):
+    """整体废弃的项目：语料不收、摘要树不建节点（状态类问题不该被路由到死项目）。
+    用合成名经 monkeypatch 验证机制，不依赖生产配置里的具体项目名。"""
+    import kb_rag.loader as loader
+    import kb_rag.wikitree as wt
+
+    monkeypatch.setattr(loader, "EXCLUDED_SUBTREES", {"废弃项目"})
+    monkeypatch.setattr(wt, "EXCLUDED_SUBTREES", {"废弃项目"})
+    _touch(tmp_path, "废弃项目/项目状态/README.md")
+    _touch(tmp_path, "废弃项目/项目文件/a.py")
+    _touch(tmp_path, "在用项目/项目状态/README.md")
+    assert [rel for _, rel in load_text_files(tmp_path)] == ["在用项目/项目状态/README.md"]
+    assert [n.path for n in wt._discover(tmp_path)] == ["", "在用项目"]
