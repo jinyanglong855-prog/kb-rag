@@ -166,10 +166,16 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
         from .parents import expand
 
         hits = expand(hits)
+    from .cards import resolve_hits
+
+    hits = resolve_hits(hits)  # 分析卡命中→回读原文、同文件去重（在截断前：让位不浪费名额）
     hits = hits[:k]
     if not hits and not sources:
         return notice + "知识库中没有检索到相关内容（或内容不在调用者的读范围内）。"
     for h in hits:
+        if h.get("card"):
+            sources.append((f"{h['path']}（分析卡命中→原文）", h["text"]))
+            continue
         parent = h.get("parent")
         label = f"{h['path']} #{h['heading']}" + ("（父块）" if parent else "")
         sources.append((label, h["text"] if parent else h["text"][:800]))

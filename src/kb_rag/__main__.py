@@ -64,6 +64,13 @@ def main() -> None:
     ag.add_argument("--max-steps", type=int, default=6)
     ev = sub.add_parser("evals", help="阶段5：跑评测集，五层检索匹配率对比（--skip-graph 跳过图层）")
     ev.add_argument("--skip-graph", action="store_true")
+    ca = sub.add_parser("cards", help="分析卡层：LLM 分析卡进语料（KB_CARDS=0 关闭；默认随 index/add 生效）")
+    ca.add_argument("--all", action="store_true", help="全库模式：全部语料文件建卡，日后新增文件自动跟进")
+    ca.add_argument("--pilot", type=int, default=0, metavar="N",
+                    help="试点模式：选取 N 个文件（评测金标优先+项目轮询）按文件指纹增量生成")
+    ca.add_argument("--regen", action="store_true", help="无视缓存全部重新生成")
+    ca.add_argument("--show", nargs="?", const="3", default=None, metavar="N|路径子串",
+                    help="查看已生成卡片（默认前 3 张；可给数字或路径子串）")
     ml = sub.add_parser("manual-list", help="零API建图：列出尚未进图的文档（基础构建优先级排序）")
     mi = sub.add_parser("manual-ingest", help="零API建图：把抽取 JSON 灌入图并标记完成")
     mi.add_argument("json_file")
@@ -214,6 +221,17 @@ def main() -> None:
         from .evals import run_evals
 
         run_evals(skip_graph=args.skip_graph)
+        return
+    if args.cmd == "cards":
+        from .cards import run_pilot, show
+
+        if args.show is not None:
+            print(show(args.show))
+        elif args.all or args.pilot:
+            print(run_pilot(args.pilot, regen=args.regen, all_mode=args.all))
+        else:
+            print("用法：kb-rag cards --all 全库建卡；kb-rag cards --pilot 50 试点建卡；"
+                  "kb-rag cards --show 查看已生成卡片")
         return
     if args.cmd == "manual-list":
         from .graph_manual import remaining_docs

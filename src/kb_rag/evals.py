@@ -10,6 +10,7 @@
 """
 
 import json
+import os
 import time
 from datetime import date
 from pathlib import Path
@@ -35,6 +36,16 @@ def _path_hit(expected: list[str], paths: list[str]) -> bool:
     return any(any(norm(e) in norm(p) for p in paths) for e in expected)
 
 
+def _hit_via(expected: list[str], hits: list[dict]) -> str:
+    """黄金路径命中的块来源：orig=原文块命中，card=仅分析卡命中（卡片试点口径
+    透明化——卡片 path=原路径，不区分会让试点效果虚高），-=未命中。"""
+    norm = lambda s: s.replace("／", "/")
+    matched = [h for h in hits if any(norm(e) in norm(h["path"]) for e in expected)]
+    if not matched:
+        return "-"
+    return "card" if all(h.get("card") for h in matched) else "orig"
+
+
 def _graph_context(question: str, mode: str = "mix") -> str:
     from lightrag import QueryParam
 
@@ -57,14 +68,23 @@ def _eval_case(case: dict, skip_graph: bool) -> dict:
     row: dict = {"id": case["id"], "type": case["type"]}
 
     if case["type"] in ("single_hop", "status"):
-        row["vector@5"] = _path_hit(expected, [h["path"] for h in vector_query(q, 5)])
+        row["via"] = {}
+        vec_hits = vector_query(q, 5)
+        row["vector@5"] = _path_hit(expected, [h["path"] for h in vec_hits])
+        row["via"]["vector@5"] = _hit_via(expected, vec_hits)
         hybrid = hybrid_query(q, 8)
         row["hybrid@8"] = _path_hit(expected, [h["path"] for h in hybrid])
-        row["hybrid+rerank@5"] = _path_hit(expected, [h["path"] for h in rerank(q, hybrid)[:5]])
+        row["via"]["hybrid@8"] = _hit_via(expected, hybrid)
+        rr = rerank(q, hybrid)[:5]
+        row["hybrid+rerank@5"] = _path_hit(expected, [h["path"] for h in rr])
+        row["via"]["hybrid+rerank@5"] = _hit_via(expected, rr)
         # 查询改写层对照（Multi-Query + HyDE 融合；改写缓存已预热则逐位可复现）
         fused = fused_query(q, k=8)
         row["改写融合@8"] = _path_hit(expected, [h["path"] for h in fused])
-        row["改写融合+精排@5"] = _path_hit(expected, [h["path"] for h in rerank(q, fused)[:5]])
+        row["via"]["改写融合@8"] = _hit_via(expected, fused)
+        rr2 = rerank(q, fused)[:5]
+        row["改写融合+精排@5"] = _path_hit(expected, [h["path"] for h in rr2])
+        row["via"]["改写融合+精排@5"] = _hit_via(expected, rr2)
     if case["type"] == "status":
         wiki_paths = []
         for w in wiki_query(q, k=3):
@@ -118,13 +138,16 @@ def run_evals(skip_graph: bool = False) -> list[dict]:
     report = {
         "date": date.today().isoformat(),
         "eval_set": EVAL_SET,
+        # KB_EVAL_REPORT：报告基名（试点/隔离索引评测用，避免覆盖生产最新报告）
+        "index_dir": str(Path(os.environ.get("INDEX_DIR", "index")).name),
         "summary": {l: {"hit": hits[l], "tried": tried[l]} for l in layers if tried[l]},
         "rows": rows,
     }
-    out = KB_PATH / EVAL_SET.replace("eval_set.json", "evals_report.json")
+    base = os.environ.get("KB_EVAL_REPORT", "evals_report")
+    out = KB_PATH / EVAL_SET.replace("eval_set.json", f"{base}.json")
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     # 带日期留档：可复现性声称要能事后复核，覆盖写只剩最后一份无法追溯
-    dated = KB_PATH / EVAL_SET.replace("eval_set.json", f"evals_report_{date.today().isoformat()}.json")
+    dated = KB_PATH / EVAL_SET.replace("eval_set.json", f"{base}_{date.today().isoformat()}.json")
     dated.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"报告: {out}（留档: {dated.name}）")
     return rows

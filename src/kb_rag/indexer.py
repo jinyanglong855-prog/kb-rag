@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import cards as cards_mod
 from .config import (EMBED_DIMS, EMBED_MODEL, EMBED_QUERY_INSTRUCT, EMBED_SEGMENT,
                      INDEX_DIR, validate_kb_path)
 from .embedder import (DOC_PREFIX_VERSION, doc_identity, embed, embed_dim, embed_identity,
@@ -320,7 +321,8 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
         old_fh = meta.get("hashes", {})
         changed = {rel for rel, h in new_file_hashes.items() if old_fh.get(rel) != h}
         deleted = set(old_fh) - set(new_file_hashes)
-        if not changed and not deleted:
+        if not changed and not deleted and not (
+                cards_mod.enabled() and cards_mod.pending(new_file_hashes)):
             total = meta.get("total_chunks")
             if total is None:  # 旧版 meta 无总数：只读 npy 头取行数，不解析 102MB chunks.json
                 total = int(np.load(Path(INDEX_DIR) / "vectors.npy", mmap_mode="r").shape[0])
@@ -367,8 +369,22 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
         kept_hashes = [old["chunk_hashes"][i] for i in keep_idx]
         if keep_idx:
             kept_vecs = np.asarray(old["vectors"][keep_idx], dtype=np.float32)
+    if cards_mod.enabled() and kept_chunks:
+        # 卡片块不随文件增量走：全部弃旧换新（下方 ensure_cards 统一重出）。
+        # 未变卡片的文本与旧索引逐字节相同 → 块哈希命中，向量零成本复用
+        mask = np.array([not c.get("card") for c in kept_chunks], dtype=bool)
+        kept_chunks = [c for c, m in zip(kept_chunks, mask) if m]
+        kept_hashes = [h for h, m in zip(kept_hashes, mask) if m]
+        kept_vecs = kept_vecs[mask]
 
     new_chunks = _rechunk_files(root, rechunk)
+    card_stats: dict | None = None
+    if cards_mod.enabled():
+        card_chunks, card_stats = cards_mod.ensure_cards(root, new_file_hashes, quiet=quiet)
+        new_chunks += card_chunks
+        if card_stats["errors"]:
+            print(f"[cards] {len(card_stats['errors'])} 张卡片生成失败（保留旧卡/缺卡，不阻塞索引）：\n  "
+                  + "\n  ".join(card_stats["errors"]), file=sys.stderr, flush=True)
     reuse_vecs: list[np.ndarray] = []
     pending: list[tuple[str, str]] = []
     new_h: list[str] = []
@@ -422,4 +438,5 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
     return {"mode": "full" if (mode == "full" or meta is None) else "delta",
             "added": len(new_chunks), "reused": len(reuse_vecs), "embedded": len(pending),
             "removed": old_total - len(kept_chunks), "total": len(all_chunks),
+            "cards": card_stats["covered"] if card_stats else 0,
             "seconds": time.time() - t0}
