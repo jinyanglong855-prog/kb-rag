@@ -385,9 +385,9 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
         if card_stats["errors"]:
             print(f"[cards] {len(card_stats['errors'])} 张卡片生成失败（保留旧卡/缺卡，不阻塞索引）：\n  "
                   + "\n  ".join(card_stats["errors"]), file=sys.stderr, flush=True)
-    reuse_vecs: list[np.ndarray] = []
     pending: list[tuple[str, str]] = []
     new_h: list[str] = []
+    new_vecs: list[np.ndarray | None] = []  # 与 new_chunks 同序；待嵌位先占 None
     for c in new_chunks:
         text = embed_input(c)
         h = chunk_hash(doc_space, text)
@@ -395,9 +395,10 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
         src = hash_to_src.get(h)
         if src is None:
             pending.append((h, text))
+            new_vecs.append(None)
         else:
             arr, row = src
-            reuse_vecs.append(np.asarray(arr[row], dtype=np.float32))
+            new_vecs.append(np.asarray(arr[row], dtype=np.float32))
     del hash_to_src  # 释放对旧 mmap 的行引用，落盘覆写前解除映射
 
     embedded: list[np.ndarray] = []
@@ -428,15 +429,25 @@ def _rebuild_locked(mode: str, force: bool, quiet: bool, t0: float) -> dict:
                       f"({done * 100 // len(pending)}%) / 已用 {el:.0f}s"
                       f" / 预计还需 {el / done * (len(pending) - done):.0f}s",
                       file=sys.stderr, flush=True)
+        # 新嵌段按 pending 顺序拼接，逐位回填进 new_vecs 的 None 位
+        emb_mat = np.vstack([np.asarray(v, dtype=np.float32) for v in embedded])
+        fill = iter(emb_mat)
+        new_vecs = [v if v is not None else next(fill) for v in new_vecs]
 
     all_chunks = kept_chunks + new_chunks
-    parts = [a for a in (kept_vecs, *reuse_vecs, *embedded) if a.shape[0]]
+    # 向量与块同序装配：all_vecs[i] 必须是 all_chunks[i] 嵌入输入的向量。曾按
+    # "复用组在前、新嵌组在后"分组 vstack——任何复用/新嵌混合的构建（cards 开启后
+    # 每次增量都是）都会整体错位：计数守卫查不出、BM25 撑着 hybrid/ask 不露馅、
+    # 纯向量层静默变噪声（2026-10-27 evals vector@5 抓出，溯源 10-26 增量恢复起）。
     # 空数组要滤掉：零行 kept_vecs 的维度可能属于旧空间（换空间全量重建时），vstack 会因维度不合报错
+    parts = ([kept_vecs] if kept_vecs.shape[0] else []) + new_vecs
+    assert all(v is not None for v in new_vecs), "新嵌向量未回填：pending 与 None 位必须一一对应"
     all_vecs = (np.vstack(parts) if parts else np.zeros((0, embed_dim()), dtype=np.float32))
     _save_index(all_chunks, all_vecs, kept_hashes + new_h, new_file_hashes, identity)
     shutil.rmtree(_build_dir(), ignore_errors=True)
     return {"mode": "full" if (mode == "full" or meta is None) else "delta",
-            "added": len(new_chunks), "reused": len(reuse_vecs), "embedded": len(pending),
+            "added": len(new_chunks), "reused": len(new_chunks) - len(pending),
+            "embedded": len(pending),
             "removed": old_total - len(kept_chunks), "total": len(all_chunks),
             "cards": card_stats["covered"] if card_stats else 0,
             "seconds": time.time() - t0}

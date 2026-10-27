@@ -252,3 +252,32 @@ def test_embed_texts_normalized_keeps_positions(monkeypatch):
     assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
     monkeypatch.setattr(indexer, "embed_dim", lambda: 8)
     assert indexer.embed_texts_normalized([], batch=2).shape == (0, 8)
+
+
+def test_delta_mixed_reuse_keeps_vector_alignment(env):
+    """复用+新嵌混合的构建必须保持向量与块同序（逐行可比对）。
+
+    曾按"复用组在前、新嵌组在后"分组 vstack：块按文件顺序排、向量按组排，
+    任何混合构建都整体错位——计数守卫查不出、BM25 撑着 hybrid/ask 不露馅、
+    纯向量层静默变噪声（2026-10-27 evals vector@5 0/8 抓出，溯源 10-26 起）。
+    FakeBackend 按文本派生确定性向量，逐行比对即可精确断言对齐。
+    """
+    _write(env.kb, "a.md", TWO_SECTION)
+    _write(env.kb, "b.md", TWO_SECTION)
+    _write(env.kb, "c.md", TWO_SECTION)
+    indexer.rebuild(mode="full")
+    # 交错场景：a 纯新增（待嵌）、b 追加（旧块复用+新块待嵌）、c 纯新增（待嵌）。
+    # 块序=[a新,b旧复用,b新,c新]；旧实现按"复用组在前"拼 → 向量序=[b旧,a,c]，整体错位。
+    # 生产里 cards 开启时每次增量都天然如此（卡片尾部复用、变更块在前）。
+    _write(env.kb, "a.md", "# 甲改\n\n" + "甲新段落。\n\n" * 30)
+    _write(env.kb, "b.md", TWO_SECTION + "\n\n## 丙\n\n" + "丙段落。\n\n" * 25)
+    _write(env.kb, "c.md", "# 丙改\n\n" + "丙新段落。\n\n" * 30)
+    r = indexer.rebuild(mode="delta")
+    assert r["reused"] > 0 and r["embedded"] > 0, "前置失效：未构成复用/新嵌混合场景"
+    chunks = json.loads((env.idx / "chunks.json").read_text())
+    vecs = np.load(env.idx / "vectors.npy")
+    assert len(chunks) == vecs.shape[0]
+    for c, v in zip(chunks, vecs):
+        want = env.fake.embed_documents([indexer.embed_input(c)])[0]
+        want = want / np.linalg.norm(want)  # rebuild 走 embed_texts_normalized 归一化
+        assert np.allclose(v, want, atol=1e-5), f"行错位：{c['path']} #{c['heading']}"
