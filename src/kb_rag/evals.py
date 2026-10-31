@@ -3,7 +3,9 @@
 层与指标：
 - vector@5 / hybrid@8 / hybrid+rerank@5：命中 = 期望来源路径出现在 top-k 的 path 里（前缀匹配）
 - status（结构层路由）：命中 = 期望状态页出现在 wiki_query 返回的节点/状态文件里
-- graph（LightRAG）：命中 = 期望路径出现在 only_need_context 的上下文里（多跳题专属）
+- graph（LightRAG）：命中 = 期望路径或评测集给的答案事实子串（graph_expected_any，v2 口径：
+  手动灌图下 mix 上下文无 file-path 溯源行，路径判分结构性失效时回退事实判分）出现在
+  only_need_context 的上下文里（多跳题专属）
 
 评测集在 `kb-rag/项目状态/参考资料/eval_set.json`（该区 json 不进语料，避免自污染）。
 题目与黄金路径均经 grep 验证确实含答案事实——评测的可信度先于规模。
@@ -97,7 +99,15 @@ def _eval_case(case: dict, skip_graph: bool) -> dict:
         row["status路由"] = _path_hit(expected, wiki_paths)
     if case["type"] == "multi_hop" and not skip_graph:
         try:
-            row["graph"] = _path_hit(expected, _graph_context(q).split())
+            ctx = _graph_context(q)
+            hit = _path_hit(expected, ctx.split())
+            if not hit:
+                # 手动灌图（batch_ingest 绕过 ainsert）下 mix 上下文无 file-path 溯源行
+                # （text_chunks 空），路径判分结构性失效；回退到答案事实子串（eval_set
+                # v2 口径：子串逐条 grep 验证在金标文件中在案）
+                facts = case.get("graph_expected_any") or []
+                hit = any(f in ctx for f in facts)
+            row["graph"] = hit
         except Exception as e:  # 图未建或后端异常：如实记失败而不是吞掉
             row["graph"] = f"ERROR: {e}"
     return row

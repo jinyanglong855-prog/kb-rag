@@ -85,3 +85,13 @@ def test_index_artifact_dirs_skipped_by_prefix(tmp_path):
     _touch(tmp_path, "p/项目文件/src/index_utils.py")
     rels = sorted(rel for _, rel in load_text_files(tmp_path))
     assert rels == ["p/项目文件/src/index_utils.py"]
+
+
+def test_archive_dirs_exclude_md_too(tmp_path):
+    """治理标准 §5"归档=退出检索视野"：归档目录的 md 同样不收（2026-10-28 修复前只拦非 md）。"""
+    _touch(tmp_path, "demo-studio/项目状态/归档/2026-07-16 - 历史快照.md")
+    _touch(tmp_path, "Shared/归档/旧手册.md")
+    _touch(tmp_path, "某项目/archive/old.md")
+    _touch(tmp_path, "demo-studio/项目状态/README.md")  # 现役知识沉淀不受影响
+    rels = sorted(rel for _, rel in load_text_files(tmp_path))
+    assert rels == ["demo-studio/项目状态/README.md"]

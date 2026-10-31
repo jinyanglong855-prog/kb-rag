@@ -101,6 +101,18 @@ def hyde_document(question: str) -> str:
     return doc
 
 
+def _file_cap() -> int:
+    """同文件多样性上限。生产默认 2（2026-10-28 用户拍板转正：A/B 融合双列 75%→100%、
+    零回归，见 work/fusion_ab.py 与状态页留档）；显式置 0 回退无配额旧行为，非法值按默认。"""
+    raw = os.environ.get("KB_FUSION_FILE_CAP")
+    if raw is None:
+        return 2
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 2
+
+
 def fused_query(question: str, k: int = 8, pool: int = 50) -> list[dict]:
     """多路改写检索 + RRF 融合（×权威乘数）。返回融合后 top-k，字段同 hybrid_query。
 
@@ -108,18 +120,36 @@ def fused_query(question: str, k: int = 8, pool: int = 50) -> list[dict]:
     按块行号（idx）键控而非 path#heading——同键多块时"后写覆盖"会把整节
     融合分塌缩到最后一块上；改写不可用（关开关/无 key/API 失败）时退化为
     原问题单路，行为≈hybrid_query。
+
+    同文件配额（_file_cap，生产默认 2）与融合权威开关（KB_FUSION_AUTHORITY，
+    默认开）的 A/B 数据与转正依据（2026-10-28）：治"单状态页占满 top8 挤掉金标
+    文件"——大而全的状态页块多且各有得分，天然霸榜；配额在装配层强制多样性。
+   权威在链路上已生效两次（每路 hybrid 内部×1 次塑造排名、下游精排再×1 次），
+    汇总处是第三次重复施加；实测单独去重不治愈且叠加配额无增益，故保留默认开。
     """
     routes = [question] + rewrite_variants(question)
     hyde = hyde_document(question)
     if hyde:
         routes.append(hyde)
     k_deep = max(k, 12)
+    fusion_authority = os.environ.get("KB_FUSION_AUTHORITY", "1") != "0"
     rrf: dict[int, float] = {}
     chunks_by_idx: dict[int, dict] = {}
     for route in routes:
         for rank, h in enumerate(hybrid_query(route, k=k_deep, vector_candidates=pool), 1):
             chunks_by_idx[h["idx"]] = h
-            rrf[h["idx"]] = rrf.get(h["idx"], 0.0) + \
-                (1.0 / (60 + rank)) * authority_multiplier(h["path"])
-    top = sorted(rrf.items(), key=lambda x: -x[1])[:k]
-    return [{**chunks_by_idx[idx], "score": round(s, 6)} for idx, s in top]
+            w = authority_multiplier(h["path"]) if fusion_authority else 1.0
+            rrf[h["idx"]] = rrf.get(h["idx"], 0.0) + (1.0 / (60 + rank)) * w
+    ranked = sorted(rrf.items(), key=lambda x: -x[1])
+    cap = _file_cap()
+    out: list[dict] = []
+    per_file: dict[str, int] = {}
+    for idx, s in ranked:
+        if len(out) >= k:
+            break
+        path = chunks_by_idx[idx]["path"]
+        if cap and per_file.get(path, 0) >= cap:
+            continue  # 该文件已占满配额：让位给后续异文件块（配额不回填同文件）
+        per_file[path] = per_file.get(path, 0) + 1
+        out.append({**chunks_by_idx[idx], "score": round(s, 6)})
+    return out

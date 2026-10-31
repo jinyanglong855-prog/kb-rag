@@ -103,7 +103,11 @@ async def _make_rag(no_llm: bool = False):
         )
 
     async def embed_func(texts: list[str]):
-        return await asyncio.to_thread(lambda: np.asarray(embed(texts)))
+        # 枢纽实体（如「demo-studio」）的描述是几百篇文档 <SEP> 拼接的长文，aedit 合并
+        # 时整条重嵌会超 LightRAG 60s worker 超时且随合并数恶化——单条截断到 8k 字符
+        # 封顶耗时（~10s）；描述全文仍完整进图，向量只取前缀。
+        capped = [t[:8000] for t in texts]
+        return await asyncio.to_thread(lambda: np.asarray(embed(capped)))
 
     rag = LightRAG(
         working_dir=str(Path(INDEX_DIR) / "lightrag"),

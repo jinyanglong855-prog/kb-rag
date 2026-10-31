@@ -24,3 +24,6 @@ os.environ["INDEX_DIR"] = str(_TMP / "index")
 os.environ["KB_SCOPES"] = str(_TMP / "scopes.json")
 os.environ.pop("KB_WRITE_SCOPE", None)
 os.environ.pop("KB_CALLER", None)
+# 生产 .env 的入库暂停不得泄入测试：load_dotenv 不覆盖已有变量，钉 0 即压住。
+# 否则 ask 相关测试静默走进暂停分支，增量路径的守卫测试空转通过（对抗审查发现）
+os.environ["KB_INGEST_PAUSED"] = "0"

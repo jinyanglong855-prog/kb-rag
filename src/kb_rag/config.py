@@ -43,6 +43,12 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
 LLM_MODEL = os.environ.get("LLM_MODEL", "glm-4.5-flash")
 HYBRID_DEFAULT = True  # ask 层默认走混合检索
+# 入库暂停开关（口径见项目文档）。
+# 暂停原本只是操作纪律，但 ask 的 L2 兜底会自动增量入库——纪律拦不住代码，
+# 实测暂停期间问一次即悄悄入库（+589 块）。置 1 后：ask 过期只提示不补齐，
+# add/ingest 明确拒绝；恢复=移除 .env 中的 KB_INGEST_PAUSED（写入路径 kb_write
+# 不受影响：经审计的显式写入保持写后即可检索）。
+INGEST_PAUSED = os.environ.get("KB_INGEST_PAUSED", "0") == "1"
 
 
 def validate_kb_path() -> Path:

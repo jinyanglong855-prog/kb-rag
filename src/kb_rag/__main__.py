@@ -151,9 +151,14 @@ def main() -> None:
             build_wiki()
         return
     if args.cmd == "add":
+        from .config import INGEST_PAUSED
         from .indexer import IndexNotQueryable
         from .search import sync_incremental
 
+        if INGEST_PAUSED:  # 入库暂停（口径见项目文档）：明确拒绝而非悄悄执行
+            print("增量入库已暂停（KB_INGEST_PAUSED=1）：本次未执行。"
+                  "恢复请移除 .env 中的 KB_INGEST_PAUSED 后重跑。")
+            sys.exit(2)
         try:
             r = sync_incremental()
         except IndexNotQueryable as e:  # 错位索引上的 add：与 query 分支同样干净退出
@@ -260,6 +265,12 @@ def main() -> None:
         out = ingest_file(args.file, args.target)
         print(f"已转换: {out}")
         if not args.no_index:
+            from .config import INGEST_PAUSED
+
+            if INGEST_PAUSED:  # 文件落库照旧（文件读取可达），索引注入等恢复后补
+                print("文件已转换落入总库；增量入库处于暂停（KB_INGEST_PAUSED=1），索引未更新——"
+                      "恢复后跑 uv run kb-rag add 即可检索。")
+                return
             try:
                 r = sync_incremental()
             except IndexNotQueryable as e:

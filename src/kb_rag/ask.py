@@ -20,7 +20,7 @@ from openai import OpenAI
 
 from . import rewrite, scopes
 from .aliases import resolve_aliases
-from .config import KB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, PARENT_RETRIEVE
+from .config import KB_PATH, INGEST_PAUSED, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, PARENT_RETRIEVE
 from .hybrid import hybrid_query
 from .search import staleness, sync_incremental
 from .wikitree import FILE_TEXT_CHARS, wiki_query
@@ -99,7 +99,7 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
     if st["mode"] == "missing":
         return ("索引不存在：请先运行 uv run kb-rag index 建立索引"
                 "（全量构建耗时较长，可断点续传）。")
-    if st["mode"] != "clean" and not restricted:
+    if st["mode"] != "clean" and not restricted and not INGEST_PAUSED:
         from .indexer import IndexNotQueryable
 
         try:
@@ -118,6 +118,11 @@ def ask(question: str, k: int = 5, caller: str = "local") -> str:
         elif r["mode"] == "delta":
             notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
                       f"已自动增量入库（+{r['added']} 块 / {r['seconds']:.1f}s）后回答。\n\n")
+    elif st["mode"] != "clean" and INGEST_PAUSED:
+        # 入库暂停（KB_INGEST_PAUSED=1）：只提示不注入。2026-10-28 教训——暂停若只写在
+        # 操作纪律里，ask 的自动兜底会无视它继续入库（实测一次提问 +589 块）
+        notice = (f"⚠ 索引过期（变更 {st['changed']} / 删除 {st['deleted']} 个文件），"
+                  "增量入库处于暂停（KB_INGEST_PAUSED=1），本次按现有索引回答。\n\n")
     elif st["mode"] != "clean":
         notice = "⚠ 索引可能过期（受限角色不触发自动重建，请联系管理员跑 kb-rag add）。\n\n"
 

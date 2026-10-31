@@ -57,3 +57,65 @@ def test_cache_file_is_valid_json(tmp_path, monkeypatch):
     rw.rewrite_variants("问题A")
     data = json.loads((tmp_path / "rewrite_cache.json").read_text(encoding="utf-8"))
     assert any("variants" in v for v in data.values())
+
+
+def _monopoly_routes(monkeypatch):
+    """单文件霸榜场景：3 块来自同一状态页、1 块来自金标文件，各路排名一致。"""
+    monkeypatch.setattr(rw, "rewrite_variants", lambda q, n=3: ["改写问法"])
+    monkeypatch.setattr(rw, "hyde_document", lambda q: "")
+
+    def fake_hybrid(route, k, vector_candidates):
+        paths = ["s/项目状态/README.md"] * 3 + ["g/项目文件/README.md"]
+        return [{"path": p, "heading": "h", "text": "t", "score": 1.0, "idx": i}
+                for i, p in enumerate(paths)]
+
+    monkeypatch.setattr(rw, "hybrid_query", fake_hybrid)
+
+
+def test_fused_query_file_cap(monkeypatch):
+    _monopoly_routes(monkeypatch)
+    monkeypatch.delenv("KB_FUSION_FILE_CAP", raising=False)
+
+    # 生产默认=2（2026-10-28 转正）：霸榜文件最多 2 席，第 3 席让位给金标文件
+    fused = rw.fused_query("原问题", k=3)
+    assert [h["path"] for h in fused] == ["s/项目状态/README.md", "s/项目状态/README.md",
+                                          "g/项目文件/README.md"]
+
+    # 显式置 0：回退无配额旧行为，霸榜文件占满 top3
+    monkeypatch.setenv("KB_FUSION_FILE_CAP", "0")
+    fused = rw.fused_query("原问题", k=3)
+    assert [h["path"] for h in fused] == ["s/项目状态/README.md"] * 3
+
+    # 非法值按生产默认处理
+    monkeypatch.setenv("KB_FUSION_FILE_CAP", "abc")
+    fused = rw.fused_query("原问题", k=3)
+    assert [h["path"] for h in fused] == ["s/项目状态/README.md", "s/项目状态/README.md",
+                                          "g/项目文件/README.md"]
+
+
+def test_fused_query_authority_dedup(monkeypatch):
+    """KB_FUSION_AUTHORITY=0：融合汇总去权威后排序跟随纯 RRF。
+
+    三候选构造可区分的两种排序：纯 RRF 下 LOG（两路高排名）> STATUS（两路低排名）；
+    乘权威（2.0 vs 0.6）后反转为 STATUS 第一。默认开=维持权威排序（既有测试固化）。
+    """
+    monkeypatch.setattr(rw, "rewrite_variants", lambda q, n=3: ["改写问法"])
+    monkeypatch.setattr(rw, "hyde_document", lambda q: "")
+
+    def fake_hybrid(route, k, vector_candidates):
+        order = (["a/项目状态/STATUS.md", "b/工作日志/x.md", "c/notes.md"]
+                 if route == "原问题"
+                 else ["b/工作日志/x.md", "c/notes.md", "a/项目状态/STATUS.md"])
+        idx = {"a/项目状态/STATUS.md": 0, "b/工作日志/x.md": 1, "c/notes.md": 2}
+        return [{"path": p, "heading": "h", "text": "t", "score": 1.0, "idx": idx[p]}
+                for p in order]
+
+    monkeypatch.setattr(rw, "hybrid_query", fake_hybrid)
+
+    monkeypatch.setenv("KB_FUSION_AUTHORITY", "0")
+    fused = rw.fused_query("原问题", k=3)
+    assert [h["path"] for h in fused] == ["b/工作日志/x.md", "a/项目状态/STATUS.md", "c/notes.md"]
+
+    monkeypatch.delenv("KB_FUSION_AUTHORITY", raising=False)
+    fused = rw.fused_query("原问题", k=3)
+    assert [h["path"] for h in fused] == ["a/项目状态/STATUS.md", "c/notes.md", "b/工作日志/x.md"]

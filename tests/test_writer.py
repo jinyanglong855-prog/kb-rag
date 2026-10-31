@@ -98,3 +98,15 @@ def test_audit_consumer_reads_back():
     assert list(audit.stats()) == ["tester/write"]
     assert "tester/write" in audit.format_stats()
     assert audit.tail(caller="nobody") == []
+
+
+def test_ingest_paused_write_succeeds_without_sync(monkeypatch):
+    """入库暂停：写入照常成功留审计，但绝不触发全库增量同步（会连带注入全部待变更文件）。"""
+    called = []
+    monkeypatch.setattr(writer, "sync_incremental",
+                        lambda: called.append(1) or {"mode": "delta", "added": 1})
+    monkeypatch.setattr(writer, "INGEST_PAUSED", True)
+    r = writer.write_entry(GOOD, "公共区/paused.md")
+    assert r["ok"] and r["sync"] == {"mode": "paused"} and called == []
+    recs = _audit_records()
+    assert recs and recs[-1]["ok"] is True and recs[-1]["sync"] == {"mode": "paused"}

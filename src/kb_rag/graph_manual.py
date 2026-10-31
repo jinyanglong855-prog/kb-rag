@@ -29,6 +29,11 @@ from .graph import GRAPH_HISTORY_SKIP, _doc_id, _graph_files, _load_meta, _make_
 
 EXTRACT_DIR = "work/graph_extract"
 
+# 护栏（methodology 1.8，治本在信息通道归位/种子实体，此处只兜底）：实体/关系描述
+# 超过此长度后不再 <SEP> 追加——重述型合并会让枢纽实体描述无界增长，每次合并整条
+# 重嵌直至超时；超限后新信息仍由该文档自己的实体与关系边承载，不丢失。
+DESC_MERGE_CAP = 3000
+
 
 def _meta_path() -> Path:
     return Path(INDEX_DIR) / "graph_meta.json"
@@ -79,7 +84,7 @@ async def _desc_of(info: dict | None) -> str:
 async def _upsert(rag, data: dict) -> dict:
     rel = data["rel"]
     file_path = rel.replace("/", "／")
-    created = merged = 0
+    created = merged = skipped = 0
 
     # LightRAG 在 create/edit 内部会对实体名做规范化（去中英间空格、全角转半角等，
     # 见 lightrag.utils.normalize_entity_name）；这里先规范化再查询/写入，否则同名
@@ -94,14 +99,17 @@ async def _upsert(rag, data: dict) -> dict:
                    "description": desc, "source_id": _doc_id(rel), "file_path": file_path}
         old_desc = await _desc_of(await rag.get_entity_info(name))
         if old_desc:
-            payload["description"] = f"{old_desc}\n<SEP>\n{desc}"
-            await rag.aedit_entity(name, payload, allow_rename=False)
-            merged += 1
+            if len(old_desc) > DESC_MERGE_CAP:
+                skipped += 1
+            else:
+                payload["description"] = f"{old_desc}\n<SEP>\n{desc}"
+                await rag.aedit_entity(name, payload, allow_rename=False)
+                merged += 1
         else:
             await rag.acreate_entity(name, payload)
             created += 1
 
-    rel_created = rel_merged = 0
+    rel_created = rel_merged = rel_skipped = 0
     for r in data.get("relations", []):
         src, tgt, desc = (normalize_entity_name(r["source"]).strip(),
                           normalize_entity_name(r["target"]).strip(),
@@ -115,17 +123,22 @@ async def _upsert(rag, data: dict) -> dict:
         payload = {"description": desc, "keywords": r.get("keywords", ""),
                    "source_id": _doc_id(rel), "file_path": file_path}
         if old_desc:
-            payload["description"] = f"{old_desc}\n<SEP>\n{desc}"
-            payload["weight"] = 2.0
-            await rag.aedit_relation(src, tgt, payload)
-            rel_merged += 1
+            if len(old_desc) > DESC_MERGE_CAP:
+                rel_skipped += 1
+            else:
+                payload["description"] = f"{old_desc}\n<SEP>\n{desc}"
+                payload["weight"] = 2.0
+                await rag.aedit_relation(src, tgt, payload)
+                rel_merged += 1
         else:
             payload["weight"] = 1.0
             await rag.acreate_relation(src, tgt, payload)
             rel_created += 1
 
     return {"entities_created": created, "entities_merged": merged,
-            "relations_created": rel_created, "relations_merged": rel_merged}
+            "contribs_skipped": skipped,
+            "relations_created": rel_created, "relations_merged": rel_merged,
+            "relations_skipped": rel_skipped}
 
 
 def ingest_manual(path: str) -> dict:

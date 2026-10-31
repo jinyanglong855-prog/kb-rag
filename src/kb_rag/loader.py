@@ -15,10 +15,14 @@ SKIP_DIRS = {
     ".venv", "venv", "__pycache__", ".pytest_cache",
     "index", "dist", "build", ".idea", ".vscode",
 }
+# 归档目录（中英文名）：整个退出检索视野，md 与非 md 一律不收——治理标准 §5
+# "归档=退出检索视野"（2026-10-27 登记缺口：原 NON_MD_SKIP_DIRS 只对非 md 生效，
+# 归档 md 仍进语料，实测占 293 块；2026-10-28 修复，下次 add/重建生效）。
+ARCHIVE_SKIP_DIRS = {"archive", "归档"}
 # 非 md 文件的额外排除：运行记录、审计回执、数据快照——它们是过程/数据，不是知识。
 # md 不受此清单影响（知识库正文全收，权威性交给加权层）。
 NON_MD_SKIP_DIRS = {
-    "work", "outputs", "logs", "delivery", "archive", "归档", "predictions",
+    "work", "outputs", "logs", "delivery", "predictions",
     "backups", "state", "releases", "history", "数据区", "原始快照",
 }
 TEXT_EXTS = {
@@ -100,6 +104,8 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
         rel_parts = p.relative_to(root).parts
         if any(part in SKIP_DIRS or part.startswith(".") for part in rel_parts):
             continue
+        if any(part in ARCHIVE_SKIP_DIRS for part in rel_parts):
+            continue  # 归档=退出检索视野（治理标准 §5），md 同样不收
         # 索引产物目录按前缀整体跳过：index_qwen/（重建草稿）、index_backup_*/（旧索引备份）
         # 里的 meta/bm25/wikitree json 是可重建缓存，混进语料会被当"知识"检索到
         if any(part.startswith("index_") for part in rel_parts[:-1]):

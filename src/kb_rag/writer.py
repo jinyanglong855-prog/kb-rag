@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .config import INDEX_DIR, KB_PATH, validate_kb_path
+from .config import INDEX_DIR, INGEST_PAUSED, KB_PATH, validate_kb_path
 from .scopes import WRITE, in_scope, resolve
 from .search import sync_incremental
 
@@ -150,13 +150,19 @@ def write_entry(content: str, rel_path: str, caller: str = "local") -> dict:
         })
         return {"ok": False, "error": f"落盘失败: {exc}"}
 
-    # 同步失败不吞掉写结果：ok 保持 True，异常文本放进 error
+    # 同步失败不吞掉写结果：ok 保持 True，异常文本放进 error。
+    # 入库暂停时跳过：sync_incremental 是全库增量（会把库里所有待变更文件
+    # 一并注入并触发卡片 API），暂停期间一次写入不得变成全库语料注入；
+    # 写入本身成功留审计，sync.mode="paused" 告知调用方"恢复后可检索"。
     sync: dict = {}
-    try:
-        sync = sync_incremental()
-    except Exception as exc:  # noqa: BLE001
-        sync = {"mode": "error"}
-        error = str(exc)
+    if INGEST_PAUSED:
+        sync = {"mode": "paused"}
+    else:
+        try:
+            sync = sync_incremental()
+        except Exception as exc:  # noqa: BLE001
+            sync = {"mode": "error"}
+            error = str(exc)
 
     result: dict = {"ok": True, "rel_path": rel_path, "bytes": bytes_len, "sync": sync}
     record: dict = {
