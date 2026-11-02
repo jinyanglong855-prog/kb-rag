@@ -64,6 +64,25 @@ def test_kept_subtree_survives_parent_exclusion(tmp_path, monkeypatch):
     assert rels == ["项目A/项目文件/x/predictions/p.md", "项目A/项目状态/README.md"]
 
 
+def test_kept_subtree_allows_dot_directory_in_its_path(tmp_path, monkeypatch):
+    """保留子树路径里的点目录（enterprise-agent-platform .dsh/skills 技能手册）放行；点目录规则对保留树外照旧，
+    SKIP_DIRS 里的 .git/node_modules 在保留树内也仍然跳过。"""
+    import kb_rag.loader as loader
+
+    monkeypatch.setattr(loader, "EXCLUDED_SUBTREES", {"项目C/项目文件"})
+    monkeypatch.setattr(loader, "KEPT_SUBTREES", {"项目C/项目文件/ws/.dsh/skills"})
+    _touch(tmp_path, "项目C/项目文件/ws/.dsh/skills/finance-ops/SKILL.md")
+    _touch(tmp_path, "项目C/项目文件/ws/.dsh/skills/.git/HEAD.md")  # SKIP_DIRS 仍生效
+    _touch(tmp_path, "项目C/项目文件/ws/.dsh/other/x.md")  # 保留树外的点目录：不放行
+    _touch(tmp_path, "项目C/项目状态/.hidden/y.md")  # 普通区点目录：不放行
+    _touch(tmp_path, "项目C/项目状态/README.md")
+    rels = sorted(rel for _, rel in load_text_files(tmp_path))
+    assert rels == [
+        "项目C/项目文件/ws/.dsh/skills/finance-ops/SKILL.md",
+        "项目C/项目状态/README.md",
+    ]
+
+
 def test_excluded_subtree_inside_status_area(tmp_path, monkeypatch):
     """数据区类排除可以落在项目状态区内部（数据池快照是数据查询对象，不是问答对象）；
     同名前缀的文件（数据区.md）不是子树，照收。"""

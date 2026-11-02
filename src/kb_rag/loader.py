@@ -102,7 +102,12 @@ def load_text_files(root: Path) -> list[tuple[Path, str]]:
         if is_excluded(rel_posix):
             continue
         rel_parts = p.relative_to(root).parts
-        if any(part in SKIP_DIRS or part.startswith(".") for part in rel_parts):
+        if any(part in SKIP_DIRS for part in rel_parts):
+            continue
+        # 点目录默认不进语料；显式保留子树是经人裁定的允许清单，其路径里的点目录放行
+        if not _under(rel_posix, KEPT_SUBTREES) and any(
+            part.startswith(".") for part in rel_parts
+        ):
             continue
         if any(part in ARCHIVE_SKIP_DIRS for part in rel_parts):
             continue  # 归档=退出检索视野（治理标准 §5），md 同样不收
