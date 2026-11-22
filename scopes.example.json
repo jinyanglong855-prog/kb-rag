@@ -1,0 +1,8 @@
+{
+  "default": { "read": ["*"], "write": ["*"] },
+  "callers": {
+    "agent-a": { "read": ["*"], "write": ["project-a", "shared-docs"] },
+    "web-console": { "read": ["project-a", "shared-docs"], "write": [] },
+    "finance-readonly": { "read": ["project-a"], "write": [] }
+  }
+}
